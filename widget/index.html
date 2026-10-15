@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Discord Edge</title>
+    <link rel="icon" type="image/svg+xml" href="resources/icon.svg" />
+    <link rel="stylesheet" href="styles/style.css" />
+    <meta name="x-icue-property" content="textColor" data-label="tr('Text')" data-type="color" data-default="'#F3F5F8'" />
+    <meta name="x-icue-property" content="accentColor" data-label="tr('Accent')" data-type="color" data-default="'#8B97FF'" />
+    <meta name="x-icue-property" content="backgroundColor" data-label="tr('Background')" data-type="color" data-default="'#0C0E12'" />
+    <script id="x-icue-groups" type="application/json">
+      [
+        {
+          "title": "tr('Appearance')",
+          "properties": ["textColor", "accentColor", "backgroundColor"]
+        }
+      ]
+    </script>
+  </head>
+  <body>
+    <main class="shell" id="app">
+      <section id="gate" class="gate" hidden="hidden"></section>
+      <section id="call" class="call" hidden="hidden">
+        <header class="bar">
+          <div class="brand">
+            <p class="kicker" id="guild"></p>
+            <h1 id="channel"></h1>
+          </div>
+          <p class="pill" id="count"></p>
+          <p class="pill timer" id="timer"></p>
+          <button type="button" id="layout" class="pill layout" data-act="layout">Compact</button>
+          <div class="notices" id="notices"></div>
+        </header>
+        <div class="stage">
+          <nav class="channels" id="channels"></nav>
+          <div class="board"><div class="roster" id="roster"></div></div>
+          <aside class="side" id="side"><p class="panel-title">Chat</p></aside>
+        </div>
+        <footer class="dock">
+          <button type="button" id="mute" data-act="mute"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span>Mute</span></button>
+          <button type="button" id="deafen" data-act="deafen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13a8 8 0 0 1 16 0v5a2 2 0 0 1-2 2h-2v-7h4M4 13v5a2 2 0 0 0 2 2h2v-7H4"/></svg><span>Deafen</span></button>
+          <button type="button" id="leave" data-act="leave"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 16c1.2 2 3 3.2 5 3.2 1.2 0 2.2-.8 2.6-1.8l.6-1.6-3.2-1.2M6 8l12 12"/></svg><span>Leave</span></button>
+        </footer>
+      </section>
+
+    </main>
+    <script src="scripts/widget.js"></script>
+  </body>
+</html>

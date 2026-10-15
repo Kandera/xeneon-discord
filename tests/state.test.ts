@@ -1,0 +1,85 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  applyChannel,
+  applySpeaking,
+  applyVoiceState,
+  blankModel,
+  pushNotice,
+  snapshot,
+} from "../src/state.ts";
+
+const channel = {
+  id: "10",
+  name: "Einsatz",
+  guild_id: "1",
+  voice_states: [
+    {
+      nick: "Mira",
+      volume: 140,
+      mute: false,
+      user: { id: "2", username: "mira", avatar: "abc" },
+      voice_state: { self_mute: false, self_deaf: false, mute: false, deaf: false },
+    },
+    {
+      nick: "",
+      volume: 100,
+      mute: true,
+      user: { id: "3", username: "jonas", avatar: null },
+      voice_state: { self_mute: true, self_deaf: false, mute: true, deaf: false },
+    },
+  ],
+};
+
+test("channel snapshot keeps nick, volume, and local mute apart from server mute", () => {
+  const model = blankModel();
+  applyChannel(model, channel, 1_000);
+  const snap = snapshot(model, 1_000);
+  assert.equal(snap.voice.channelName, "Einsatz");
+  assert.equal(snap.voice.since, 1_000);
+  const mira = snap.voice.members.find((member) => member.id === "2");
+  const jonas = snap.voice.members.find((member) => member.id === "3");
+  assert.equal(mira?.name, "Mira");
+  assert.equal(mira?.volume, 140);
+  assert.equal(mira?.localMute, false);
+  assert.equal(jonas?.name, "jonas");
+  assert.equal(jonas?.localMute, true);
+  assert.equal(jonas?.serverMute, true);
+  assert.equal(jonas?.selfMute, true);
+});
+
+test("leaving the channel clears the roster and does not keep the old timer", () => {
+  const model = blankModel();
+  applyChannel(model, channel, 1_000);
+  applyChannel(model, null, 2_000);
+  const snap = snapshot(model, 2_000);
+  assert.equal(snap.voice.channelId, null);
+  assert.equal(snap.voice.since, null);
+  assert.equal(snap.voice.members.length, 0);
+});
+
+test("a missed speaking-stop expires instead of sticking", () => {
+  const model = blankModel();
+  applyChannel(model, channel, 1_000);
+  applySpeaking(model, "SPEAKING_START", "2", 5_000);
+  assert.equal(snapshot(model, 5_100).voice.members.find((member) => member.id === "2")?.speaking, true);
+  assert.equal(snapshot(model, 8_000).voice.members.find((member) => member.id === "2")?.speaking, false);
+});
+
+test("voice delete removes the person and their speaking flag", () => {
+  const model = blankModel();
+  applyChannel(model, channel, 1_000);
+  applySpeaking(model, "SPEAKING_START", "2", 1_000);
+  applyVoiceState(model, "VOICE_STATE_DELETE", { user: { id: "2", username: "mira" } });
+  const snap = snapshot(model, 1_100);
+  assert.equal(snap.voice.members.some((member) => member.id === "2"), false);
+});
+
+test("notices keep the newest six", () => {
+  const model = blankModel();
+  for (let index = 0; index < 8; index += 1) {
+    pushNotice(model, { id: String(index), channelId: "9", title: "t", body: String(index), at: index });
+  }
+  const ids = snapshot(model, 0).notifications.map((notice) => notice.id);
+  assert.deepEqual(ids, ["7", "6", "5", "4", "3", "2"]);
+});

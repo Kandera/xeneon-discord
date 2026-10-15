@@ -1,0 +1,7 @@
+node_modules/
+bin/
+*.icuewidget
+*.log
+config.json
+.env
+.env.*

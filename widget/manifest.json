@@ -1,0 +1,16 @@
+{
+  "author": "Kandera",
+  "id": "app.kandera.discord-edge",
+  "name": "Discord Edge",
+  "description": "Voice, volume, and mentions from Discord Desktop. Needs the local bridge. No marketplace license.",
+  "version": "0.1.0",
+  "preview_icon": "resources/icon.svg",
+  "min_framework_version": "1.0.0",
+  "min_app_version": "5.47",
+  "os": [{ "platform": "windows" }],
+  "supported_devices": [{ "type": "dashboard_lcd" }],
+  "interactive": true,
+  "permissions": [
+    { "type": "url", "domain": "127.0.0.1", "port": 47331 }
+  ]
+}
