@@ -517,9 +517,8 @@ export class Session {
   }
 
   private async loadOccupants(): Promise<void> {
-    const voices = this.model.channels.filter((channel) => channel.type === 2 || channel.type === 13).slice(0, 12);
-    for (const channel of voices) {
-      if (channel.id === this.model.channelId) continue;
+    const voices = this.model.channels.filter((channel) => (channel.type === 2 || channel.type === 13) && channel.id !== this.model.channelId).slice(0, 12);
+    await Promise.all(voices.map(async (channel) => {
       try {
         const data = asRecord(await this.rpc("GET_CHANNEL", { channel_id: channel.id }));
         const states = Array.isArray(data?.voice_states) ? data.voice_states : [];
@@ -535,7 +534,7 @@ export class Session {
       } catch {
         this.model.occupants.set(channel.id, []);
       }
-    }
+    }));
   }
 
   private async watchVoice(channelId: string | null): Promise<void> {
@@ -676,17 +675,20 @@ export class Session {
       void this.refreshChannel().then(() => this.emit()).catch((error: unknown) => this.fail(error));
       return;
     }
+    let dirty = true;
     if (evt === "VOICE_STATE_CREATE" || evt === "VOICE_STATE_UPDATE" || evt === "VOICE_STATE_DELETE") {
       applyVoiceState(this.model, evt, data);
     } else if (evt === "SPEAKING_START" || evt === "SPEAKING_STOP") {
       const speaking = asRecord(data);
-      applySpeaking(this.model, evt, typeof speaking?.user_id === "string" ? speaking.user_id : "", now);
+      dirty = applySpeaking(this.model, evt, typeof speaking?.user_id === "string" ? speaking.user_id : "", now);
       this.scheduleSpeaking();
     } else if (evt === "VOICE_SETTINGS_UPDATE") {
       applySettings(this.model, data);
     } else if (evt === "VOICE_CONNECTION_STATUS") {
       const status = asRecord(data);
-      this.model.connection = typeof status?.state === "string" ? status.state : "";
+      const connection = typeof status?.state === "string" ? status.state : "";
+      dirty = connection !== this.model.connection;
+      this.model.connection = connection;
     } else if (evt === "NOTIFICATION_CREATE") {
       this.onNotice(data);
     } else if (evt === "MESSAGE_CREATE" || evt === "MESSAGE_UPDATE" || evt === "MESSAGE_DELETE") {
@@ -694,7 +696,7 @@ export class Session {
     } else {
       return;
     }
-    this.emit();
+    if (dirty) this.emit();
   }
 
   private onNotice(data: unknown): void {

@@ -79,7 +79,7 @@ async function handle(bridge: Bridge, widgetRoot: string, request: IncomingMessa
     }
     response.writeHead(200, {
       "Content-Type": image.type,
-      "Cache-Control": "no-cache",
+      "Cache-Control": "private, max-age=604800, immutable",
       ...cors(origin),
     });
     response.end(image.bytes);

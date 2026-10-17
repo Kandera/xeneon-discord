@@ -9,6 +9,7 @@ const sheet = document.querySelector("#sheet");
 const roster = document.querySelector("#roster");
 const channels = document.querySelector("#channels");
 const side = document.querySelector("#side");
+const cards = new Map();
 
 let snap = null;
 let selected = null;
@@ -17,6 +18,8 @@ let rosterKey = "";
 let channelKey = "";
 let sideKey = "";
 let gateKey = "";
+let noticeKey = "";
+let dockKey = "";
 let started = false;
 let volumeTimer = 0;
 let dragging = false;
@@ -212,9 +215,9 @@ function guildChannels(next, type) {
 
 function renderCall(next) {
   ensureVoiceGuild(next);
-  document.querySelector("#guild").textContent = next.voice.guildName || "Discord";
-  document.querySelector("#channel").textContent = next.voice.channelName || "Not in voice";
-  document.querySelector("#count").textContent = next.voice.members.length ? next.voice.members.length + " in call" : "No call";
+  setText(document.querySelector("#guild"), next.voice.guildName || "Discord");
+  setText(document.querySelector("#channel"), next.voice.channelName || "Not in voice");
+  setText(document.querySelector("#count"), next.voice.members.length ? next.voice.members.length + " in call" : "No call");
   paintTimer();
   renderNotices(next);
   paintDock(next);
@@ -226,10 +229,12 @@ function renderCall(next) {
   } else {
     patchRoster(next);
   }
-  const nextChannels = next.activeGuildId + "|" + next.voice.channelId + "|" + next.channels.map((channel) => channel.id + ":" + (channel.people || []).map((person) => person.id).join(".")).join(",") + "|" + next.voice.members.map((member) => member.id + (member.speaking ? "s" : "")).join(",");
+  const nextChannels = next.activeGuildId + "|" + next.voice.channelId + "|" + next.channels.map((channel) => channel.id + ":" + (channel.people || []).map((person) => person.id).join(".")).join(",");
   if (nextChannels !== channelKey) {
     channelKey = nextChannels;
     buildChannels(next);
+  } else {
+    patchOccupants(next);
   }
   const member = next.voice.members.find((item) => item.id === selected);
   const nextSide = [
@@ -249,7 +254,7 @@ function renderCall(next) {
 function paintTimer() {
   const node = document.querySelector("#timer");
   if (!node || !snap || snap.phase !== "ready") return;
-  node.textContent = snap.voice.since ? elapsed(snap.voice.since) : "";
+  setText(node, snap.voice.since ? elapsed(snap.voice.since) : "");
 }
 
 function elapsed(since) {
@@ -262,6 +267,9 @@ function elapsed(since) {
 }
 
 function renderNotices(next) {
+  const key = next.notifications.slice(0, 2).map((notice) => notice.id + "\n" + notice.title + "\n" + notice.body).join("|");
+  if (key === noticeKey) return;
+  noticeKey = key;
   const host = document.querySelector("#notices");
   host.replaceChildren();
   for (const notice of next.notifications.slice(0, 2)) {
@@ -273,62 +281,119 @@ function renderNotices(next) {
 }
 
 function paintDock(next) {
-  document.querySelector("#mute").setAttribute("aria-pressed", String(next.voice.selfMute));
-  document.querySelector("#deafen").setAttribute("aria-pressed", String(next.voice.selfDeaf));
-  document.querySelector("#leave").disabled = !next.voice.channelId;
-  const mic = document.querySelector("#mic");
   const pair = next.mics || { a: "", b: "" };
   const devices = next.settings?.inputDevices || [];
   const nameOf = (id) => devices.find((item) => item.id === id)?.name || "";
   const target = pair.a && pair.b ? (next.settings.inputDeviceId === pair.a ? pair.b : pair.a) : "";
-  mic.querySelector("span").textContent = target ? shortDevice(nameOf(target) || "Mic") : "Mic";
+  const label = target ? shortDevice(nameOf(target) || "Mic") : "Mic";
+  const key = [next.voice.selfMute, next.voice.selfDeaf, next.voice.channelId || "", label].join("|");
+  if (key === dockKey) return;
+  dockKey = key;
+  document.querySelector("#mute").setAttribute("aria-pressed", String(next.voice.selfMute));
+  document.querySelector("#deafen").setAttribute("aria-pressed", String(next.voice.selfDeaf));
+  document.querySelector("#leave").disabled = !next.voice.channelId;
+  const mic = document.querySelector("#mic");
+  setText(mic.querySelector("span"), label);
   mic.title = target ? "Switch to " + (nameOf(target) || "the other microphone") : "Choose two microphones";
 }
 
 function buildRoster(next) {
   const shown = next.voice.members.slice(0, 25);
-  roster.replaceChildren();
+  const keep = new Set(shown.map((member) => member.id));
+  for (const [id, node] of cards) {
+    if (!keep.has(id)) {
+      node.remove();
+      cards.delete(id);
+    }
+  }
   if (shown.length === 0) {
+    cards.clear();
     roster.dataset.count = "0";
-    roster.append(el("p", "empty", next.voice.channelId ? "Nobody else in the channel" : "Not in voice"));
+    roster.replaceChildren(el("p", "empty", next.voice.channelId ? "Nobody else in the channel" : "Not in voice"));
     fitRoster();
     return;
   }
-  for (const member of shown) roster.append(personButton(member));
-  if (next.voice.members.length > shown.length) {
-    roster.append(el("p", "hint", "+" + (next.voice.members.length - shown.length) + " more"));
+  const countChanged = roster.dataset.count !== String(shown.length);
+  for (const member of shown) {
+    let node = cards.get(member.id);
+    if (!node) {
+      node = personButton(member);
+      cards.set(member.id, node);
+    }
+    roster.append(node);
   }
-  roster.dataset.count = String(shown.length);
-  roster.style.setProperty("--face", facePx(shown.length) + "px");
-  fitRoster();
-  requestAnimationFrame(fitRoster);
+  const extra = next.voice.members.length - shown.length;
+  let hint = roster.querySelector(":scope > .hint");
+  if (extra > 0) {
+    const label = "+" + extra + " more";
+    if (!hint) roster.append(el("p", "hint", label));
+    else setText(hint, label);
+  } else hint?.remove();
+  if (countChanged) {
+    roster.dataset.count = String(shown.length);
+    roster.style.setProperty("--face", facePx(shown.length) + "px");
+    fitRoster();
+    requestAnimationFrame(fitRoster);
+  }
+  patchRoster(next);
 }
 
 function patchRoster(next) {
   for (const member of next.voice.members) {
-    const node = roster.querySelector('[data-person="' + cssEscape(member.id) + '"]');
+    const node = cards.get(member.id);
     if (!node) continue;
     node.classList.toggle("speaking", member.speaking);
     node.classList.toggle("muted", member.selfMute || member.serverMute || member.localMute);
     node.classList.toggle("selected", member.id === selected);
-    const status = node.querySelector(".status");
-    if (status) status.textContent = statusText(member);
+    setText(node.querySelector(".name"), member.name);
+    setText(node.querySelector(".status"), statusText(member));
     syncBadge(node.querySelector(".face-wrap"), member);
+    const face = node.querySelector(".face");
+    const img = face?.querySelector("img");
+    const url = avatarUrl(member);
+    if (img) {
+      if (img.getAttribute("src") !== url) img.src = url;
+    } else if (member.avatar && face && face.textContent === initials(member.name)) {
+      const nextImg = document.createElement("img");
+      nextImg.alt = "";
+      nextImg.decoding = "async";
+      nextImg.src = url;
+      nextImg.addEventListener("error", () => nextImg.remove());
+      face.textContent = "";
+      face.append(nextImg);
+    }
     const note = node.querySelector(".self-state");
-    if (note) note.textContent = selfState(member);
+    if (note) setText(note, selfState(member));
     const range = node.querySelector(".vol");
     const read = node.querySelector(".vol-read");
     if (range && document.activeElement !== range) {
-      range.value = String(member.volume);
-      if (read) read.textContent = member.volume + "%";
+      if (range.value !== String(member.volume)) range.value = String(member.volume);
+      if (read) setText(read, member.volume + "%");
     }
     const mute = node.querySelector("[data-act=user-mute]");
     if (mute) {
-      mute.dataset.mute = String(!member.localMute);
-      mute.setAttribute("aria-pressed", String(member.localMute));
-      mute.textContent = member.localMute ? "Unmute" : "Mute";
+      const pressed = String(member.localMute);
+      if (mute.getAttribute("aria-pressed") !== pressed) {
+        mute.dataset.mute = String(!member.localMute);
+        mute.setAttribute("aria-pressed", pressed);
+        setText(mute, member.localMute ? "Unmute" : "Mute");
+      }
     }
   }
+}
+
+function avatarUrl(member) {
+  return BASE + "/v1/avatar/" + member.id + (member.avatar ? "?h=" + encodeURIComponent(member.avatar) : "");
+}
+
+function setText(node, value) {
+  if (node && node.textContent !== value) node.textContent = value;
+}
+
+function patchOccupants(next) {
+  const speaking = new Set();
+  for (const member of next.voice.members) if (member.speaking) speaking.add(member.id);
+  for (const row of channels.querySelectorAll(".occupant")) row.classList.toggle("speaking", speaking.has(row.dataset.id));
 }
 
 function personButton(member) {
@@ -349,7 +414,8 @@ function personButton(member) {
   face.style.setProperty("--face-color", faceColor(member.id));
   const img = document.createElement("img");
   img.alt = "";
-  img.src = BASE + "/v1/avatar/" + member.id;
+  img.decoding = "async";
+  img.src = avatarUrl(member);
   img.addEventListener("error", () => {
     img.remove();
     face.textContent = initials(member.name);

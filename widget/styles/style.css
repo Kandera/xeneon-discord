@@ -138,6 +138,7 @@ h1 {
   background: var(--raised);
   text-align: center;
   overflow: hidden;
+  contain: layout;
 }
 .person.selected { border-color: color-mix(in srgb, var(--accent-color) 70%, white); }
 .person.speaking {

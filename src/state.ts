@@ -270,18 +270,21 @@ export function applyVoiceState(model: Model, event: string, data: unknown): voi
   }
 }
 
-export function applySpeaking(model: Model, event: string, userId: string, now: number): void {
-  if (!userId) return;
+export function applySpeaking(model: Model, event: string, userId: string, now: number): boolean {
+  if (!userId) return false;
   const member = model.members.get(userId);
+  const was = member?.speaking === true;
   if (event === "SPEAKING_START") {
     if (!model.speakingSince.has(userId)) model.speakingSince.set(userId, now);
     model.speakingUntil.set(userId, now + SPEAKING_HOLD_MS);
-    if (member) member.speaking = audible(model, userId, now);
-    return;
+    const speaking = audible(model, userId, now);
+    if (member) member.speaking = speaking;
+    return speaking !== was;
   }
   model.speakingSince.delete(userId);
   model.speakingUntil.delete(userId);
   if (member) member.speaking = false;
+  return was;
 }
 
 export function nextSpeakingWait(model: Model, now: number): number | null {
