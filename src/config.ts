@@ -8,15 +8,16 @@ export interface Config {
   accessToken: string;
   refreshToken: string;
   expiresAt: number;
+  micA: string;
+  micB: string;
 }
-
 export function configFile(): string {
   const base = process.env.LOCALAPPDATA || join(homedir(), "AppData", "Local");
   return join(base, "XeneonDiscord", "config.json");
 }
 
 export function emptyConfig(): Config {
-  return { clientId: "", clientSecret: "", accessToken: "", refreshToken: "", expiresAt: 0 };
+  return { clientId: "", clientSecret: "", accessToken: "", refreshToken: "", expiresAt: 0, micA: "", micB: "" };
 }
 
 export function loadConfig(): Config {
@@ -28,6 +29,8 @@ export function loadConfig(): Config {
       accessToken: typeof raw.accessToken === "string" ? raw.accessToken : "",
       refreshToken: typeof raw.refreshToken === "string" ? raw.refreshToken : "",
       expiresAt: typeof raw.expiresAt === "number" ? raw.expiresAt : 0,
+      micA: typeof raw.micA === "string" ? raw.micA : "",
+      micB: typeof raw.micB === "string" ? raw.micB : "",
     };
   } catch {
     return emptyConfig();

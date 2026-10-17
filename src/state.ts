@@ -70,6 +70,7 @@ export interface Model {
   since: number | null;
   members: Map<string, Member>;
   speakingUntil: Map<string, number>;
+  speakingSince: Map<string, number>;
   settings: Settings;
   guilds: { id: string; name: string }[];
   channels: ChannelRef[];
@@ -81,6 +82,8 @@ export interface Model {
   messages: ChatMessage[];
   history: "live" | "loaded" | "unavailable";
   chatError: string;
+  micA: string;
+  micB: string;
 }
 
 export interface Snapshot {
@@ -113,9 +116,11 @@ export interface Snapshot {
     history: Model["history"];
     error: string;
   };
+  mics: { a: string; b: string };
 }
 
 const SPEAKING_HOLD_MS = 2200;
+const SPEAKING_GRACE_MS = 1000;
 const NOTICE_CAP = 6;
 const MESSAGE_CAP = 40;
 
@@ -150,6 +155,7 @@ export function blankModel(): Model {
     since: null,
     members: new Map(),
     speakingUntil: new Map(),
+    speakingSince: new Map(),
     settings: blankSettings(),
     guilds: [],
     channels: [],
@@ -161,6 +167,8 @@ export function blankModel(): Model {
     messages: [],
     history: "live",
     chatError: "",
+    micA: "",
+    micB: "",
   };
 }
 
@@ -213,12 +221,14 @@ export function applyChannel(model: Model, data: unknown, now: number): void {
     model.since = null;
     model.members.clear();
     model.speakingUntil.clear();
+    model.speakingSince.clear();
     return;
   }
   const nextId = text(channel.id);
   if (model.channelId !== nextId) {
     model.since = now;
     model.speakingUntil.clear();
+    model.speakingSince.clear();
   }
   model.channelId = nextId;
   model.channelName = text(channel.name) || model.channelName;
@@ -226,7 +236,6 @@ export function applyChannel(model: Model, data: unknown, now: number): void {
   if (model.guildId) {
     const known = model.guilds.find((guild) => guild.id === model.guildId);
     if (known) model.guildName = known.name;
-    model.activeGuildId = model.guildId;
   }
   const states = Array.isArray(channel.voice_states) ? channel.voice_states : [];
   const next = new Map<string, Member>();
@@ -234,7 +243,7 @@ export function applyChannel(model: Model, data: unknown, now: number): void {
     const member = memberFromVoice(state);
     if (!member) continue;
     const until = model.speakingUntil.get(member.id) ?? 0;
-    member.speaking = model.members.get(member.id)?.speaking === true && until > now;
+    member.speaking = until > now && audible(model, member.id, now);
     next.set(member.id, member);
   }
   model.members = next;
@@ -246,10 +255,12 @@ export function applyVoiceState(model: Model, event: string, data: unknown): voi
   if (event === "VOICE_STATE_DELETE") {
     model.members.delete(member.id);
     model.speakingUntil.delete(member.id);
+    model.speakingSince.delete(member.id);
     return;
   }
+  const now = Date.now();
   const until = model.speakingUntil.get(member.id) ?? 0;
-  member.speaking = model.members.get(member.id)?.speaking === true && until > Date.now();
+  member.speaking = until > now && audible(model, member.id, now);
   model.members.set(member.id, member);
   if (model.user && member.id === model.user.id) {
     model.selfMute = member.selfMute;
@@ -263,12 +274,32 @@ export function applySpeaking(model: Model, event: string, userId: string, now: 
   if (!userId) return;
   const member = model.members.get(userId);
   if (event === "SPEAKING_START") {
+    if (!model.speakingSince.has(userId)) model.speakingSince.set(userId, now);
     model.speakingUntil.set(userId, now + SPEAKING_HOLD_MS);
-    if (member) member.speaking = true;
+    if (member) member.speaking = audible(model, userId, now);
     return;
   }
+  model.speakingSince.delete(userId);
   model.speakingUntil.delete(userId);
   if (member) member.speaking = false;
+}
+
+export function nextSpeakingWait(model: Model, now: number): number | null {
+  let wait: number | null = null;
+  for (const [id, since] of model.speakingSince) {
+    const until = model.speakingUntil.get(id) ?? 0;
+    if (until <= now) continue;
+    const at = now < since + SPEAKING_GRACE_MS ? since + SPEAKING_GRACE_MS : until;
+    const delta = at - now;
+    if (wait == null || delta < wait) wait = delta;
+  }
+  return wait;
+}
+
+function audible(model: Model, userId: string, now: number): boolean {
+  const since = model.speakingSince.get(userId);
+  const until = model.speakingUntil.get(userId) ?? 0;
+  return since != null && until > now && now - since >= SPEAKING_GRACE_MS;
 }
 
 export function applySettings(model: Model, data: unknown): void {
@@ -333,6 +364,7 @@ export function applyChannels(model: Model, guildId: string, data: unknown): voi
   });
 }
 
+
 export function pushNotice(model: Model, notice: Notice): void {
   model.notifications = [notice, ...model.notifications.filter((item) => item.id !== notice.id)].slice(0, NOTICE_CAP);
 }
@@ -375,8 +407,8 @@ export function dropMessage(model: Model, id: string): void {
 
 export function snapshot(model: Model, now: number): Snapshot {
   const members = [...model.members.values()].map((member) => {
-    const until = model.speakingUntil.get(member.id);
-    const speaking = member.speaking && (until === undefined || until > now);
+    const speaking = audible(model, member.id, now);
+    member.speaking = speaking;
     return { ...member, speaking, self: model.user?.id === member.id };
   });
   members.sort((a, b) => {
@@ -419,6 +451,7 @@ export function snapshot(model: Model, now: number): Snapshot {
       history: model.history,
       error: model.chatError,
     },
+    mics: { a: model.micA, b: model.micB },
   };
 }
 

@@ -130,15 +130,14 @@ h1 {
   .person {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
   min-height: 132px;
-  padding: 14px 10px;
+  min-width: 0;
+  padding: 0;
   border: 1px solid var(--line);
   border-radius: 14px;
   background: var(--raised);
   text-align: center;
+  overflow: hidden;
 }
 .person.selected { border-color: color-mix(in srgb, var(--accent-color) 70%, white); }
 .person.speaking {
@@ -170,6 +169,122 @@ h1 {
 }
   .person.muted .status { color: var(--mute); }
   .person.speaking .status { color: var(--speak); }
+.person-body {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+.person-open, .who-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  max-width: 100%;
+}
+.person-open {
+  flex: 1 1 auto;
+  gap: 8px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 14px 10px;
+}
+.who-copy { gap: 2px; }
+.face-wrap { position: relative; display: grid; flex: 0 0 auto; }
+.badge {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--mute);
+  color: #1a0d10;
+  border: 2px solid var(--raised);
+  pointer-events: none;
+}
+.badge svg { width: 13px; height: 13px; }
+.badge.deaf { background: #e0a15a; color: #1c1208; }
+.status {
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tools {
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  padding: 0 14px 14px;
+}
+.tool-label {
+  margin: 0;
+  color: var(--faint);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.vol-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  color: var(--faint);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.vol-read { flex: 0 0 3.4em; text-align: right; }
+.vol-line input[type="range"] {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  accent-color: var(--accent-color);
+  height: 28px;
+}
+.chip {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: inherit;
+  border-radius: 999px;
+  min-height: 40px;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 620;
+}
+.chip[aria-pressed="true"] {
+  color: var(--mute);
+  border-color: color-mix(in srgb, var(--mute) 55%, var(--line));
+  background: color-mix(in srgb, var(--mute) 14%, transparent);
+}
+.person-open:focus-visible, .chip:focus-visible, .dock button:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
+@container person (min-height: 210px) and (min-width: 150px) {
+  .tools { display: flex; }
+}
+@container person (min-height: 300px) {
+  .name { font-size: 18px; }
+  .status { font-size: 14px; }
+  .badge { width: 28px; height: 28px; }
+  .badge svg { width: 16px; height: 16px; }
+}
+@container person (min-aspect-ratio: 1.35) and (min-width: 460px) {
+  .person-body { flex-direction: row; align-items: center; gap: 24px; padding: 20px 28px; }
+  .person-open { flex-direction: row; justify-content: flex-start; gap: 20px; padding: 0; }
+  .who-copy { align-items: flex-start; text-align: left; }
+  .tools { width: min(42%, 380px); flex: 0 1 380px; padding: 0; }
+  .face { width: min(72cqh, 300px); height: min(72cqh, 300px); font-size: calc(min(72cqh, 300px) * 0.34); }
+}
 .empty {
   grid-column: 1 / -1;
   margin: auto;
@@ -277,7 +392,7 @@ h1 {
 
 .dock {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 8px;
   flex: 0 0 auto;
 }
@@ -291,7 +406,23 @@ h1 {
   background: var(--panel);
   font-weight: 620;
 }
-.dock svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .dock svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .dock-mic { position: relative; min-width: 0; }
+  .dock-mic > #mic { width: 100%; padding-right: 34px; }
+  .dock-mic > #mic span { max-width: 9ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dock .mic-setup {
+  position: absolute;
+  top: 8px;
+  right: 6px;
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--faint);
+}
+  .mic-setup svg { width: 16px; height: 16px; }
 #mute[aria-pressed="true"], #deafen[aria-pressed="true"] {
   background: color-mix(in srgb, var(--mute) 16%, var(--panel));
   border-color: color-mix(in srgb, var(--mute) 55%, var(--line));
@@ -338,49 +469,148 @@ label.hint { display: flex; flex-direction: column; gap: 6px; }
   .stage { grid-template-columns: 340px minmax(0, 1fr) 380px; }
 }
 
+#app.compact { --rail: 116px; }
 #app.compact .channels,
 #app.compact .side { display: none !important; }
-#app.compact .stage { grid-template-columns: minmax(0, 1fr) !important; }
-#app.compact .kicker,
-#app.compact .status,
-#app.compact .dock span { display: none; }
-#app.compact .board {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: 0;
-  padding: 8px 0;
-  overflow: hidden;
-}
-#app.compact .roster {
-  --face: 72px !important;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  align-content: center;
-  justify-content: center;
-  height: auto;
-  max-height: 100%;
-  width: 100%;
-  gap: 16px;
-}
-#app.compact .person {
-  flex: 0 1 200px;
-  width: 200px;
-  max-width: 240px;
-  height: 240px;
+#app.compact .kicker { display: none; }
+#app.compact .call {
+  display: grid;
+  grid-template-columns: var(--rail) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas:
+    "rail head"
+    "rail stage";
   min-height: 0;
 }
-#app.compact .roster[data-count="1"] { --face: 112px !important; }
-#app.compact .roster[data-count="1"] .person { width: 280px; max-width: 320px; height: 300px; flex-basis: 280px; }
-#app.compact .roster[data-count="2"],
-#app.compact .roster[data-count="3"] { --face: 96px !important; }
-#app.compact .roster[data-count="2"] .person,
-#app.compact .roster[data-count="3"] .person { width: 240px; max-width: 260px; height: 280px; flex-basis: 240px; }
-#app.compact .dock { gap: 12px; }
-#app.compact .dock button { min-height: 76px; border-radius: 18px; }
-#app.compact .dock svg { width: 32px; height: 32px; }
+#app.compact .bar { grid-area: head; }
+#app.compact .stage {
+  grid-area: stage;
+  grid-template-columns: minmax(0, 1fr) !important;
+  height: 100%;
+  min-height: 0;
+}
+#app.compact .dock {
+  grid-area: rail;
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  min-height: 0;
+}
+#app.compact .dock button {
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  height: 100%;
+  padding: 8px 6px;
+  border-radius: 16px;
+}
+#app.compact .dock span {
+  display: block;
+  font-size: 12px;
+  font-weight: 620;
+  line-height: 1.1;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#app.compact .dock svg { width: 28px; height: 28px; }
+#app.compact .dock-mic {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+#app.compact .dock-mic > #mic {
+  width: 100%;
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+  padding-right: 6px;
+}
+#app.compact .dock .mic-setup {
+  position: static;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  height: 36px;
+  min-height: 36px;
+  margin-top: 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+}
+.mic-setup span { display: none; }
+#app.compact .board {
+  display: flex;
+  align-items: stretch;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  overflow: hidden;
+  height: 100%;
+  min-height: 0;
+}
+#app.compact .roster {
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 5), minmax(0, 1fr));
+  grid-template-rows: repeat(var(--rows, 1), minmax(0, 1fr));
+  align-content: stretch;
+  justify-content: stretch;
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  gap: 10px;
+}
+#app.compact .person {
+  container: person / size;
+  width: auto;
+  max-width: none;
+  height: 100%;
+  min-height: 0;
+  border-radius: 18px;
+}
+#app.compact .person-body {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 116px;
+}
+#app.compact .tools { height: 100%; justify-content: center; }
+.self-state { margin: 0; font-size: 16px; font-weight: 640; }
+.person.self.muted .self-state { color: var(--mute); }
+#app.compact .face {
+  width: min(80cqw, 54cqh, 340px);
+  height: min(80cqw, 54cqh, 340px);
+  font-size: calc(min(80cqw, 54cqh, 340px) * 0.34);
+}
+@container person (min-aspect-ratio: 1.35) and (min-width: 460px) {
+  #app.compact .face {
+    width: min(70cqh, 360px);
+    height: min(70cqh, 360px);
+    font-size: calc(min(70cqh, 360px) * 0.34);
+  }
+  #app.compact .person-body {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 36px;
+    padding: 20px 28px;
+    grid-template-rows: none;
+  }
+  #app.compact .person-open { flex: 0 1 auto; width: auto; justify-content: flex-start; }
+  #app.compact .name { font-size: 32px; }
+  #app.compact .status { font-size: 16px; }
+  #app.compact .person.self .status { display: none; }
+  #app.compact .tools { height: auto; width: 320px; flex: 0 0 320px; padding: 0; }
+  #app.compact .self-note { width: auto; flex: 0 0 auto; align-items: flex-start; }
+}
+#app.compact .roster > .hint { display: grid; place-items: center; margin: 0; }
+#app.compact .sheet { left: calc(var(--rail) + 20px); bottom: 16px; }
 
 @container edge (max-height: 420px) {
   .call { padding: 8px 10px; gap: 8px; }
@@ -391,6 +621,23 @@ label.hint { display: flex; flex-direction: column; gap: 6px; }
   .person { flex: 1 1 96px; min-width: 96px; max-width: 180px; min-height: 0; height: 100%; }
   .dock button { min-height: 44px; }
   .dock span { display: none; }
+  #app.compact .call { display: flex; flex-direction: column; }
+  #app.compact .dock {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    grid-template-rows: none;
+    grid-area: auto;
+  }
+  #app.compact .dock button { flex-direction: row; height: auto; min-height: 44px; }
+  #app.compact .dock span { display: none; }
+  #app.compact #mic span { display: inline; font-size: 12px; }
+  #app.compact .roster {
+    display: flex;
+    flex-wrap: nowrap;
+    height: 100%;
+  }
+  #app.compact .person { width: auto; max-width: 180px; height: 100%; }
+  #app.compact .sheet { left: 12px; bottom: 64px; }
 }
 
 @container edge (max-aspect-ratio: 1 / 1) {

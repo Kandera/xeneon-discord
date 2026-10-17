@@ -41,8 +41,13 @@
           <button type="button" id="mute" data-act="mute"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span>Mute</span></button>
           <button type="button" id="deafen" data-act="deafen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13a8 8 0 0 1 16 0v5a2 2 0 0 1-2 2h-2v-7h4M4 13v5a2 2 0 0 0 2 2h2v-7H4"/></svg><span>Deafen</span></button>
           <button type="button" id="leave" data-act="leave"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 16c1.2 2 3 3.2 5 3.2 1.2 0 2.2-.8 2.6-1.8l.6-1.6-3.2-1.2M6 8l12 12"/></svg><span>Leave</span></button>
+          <div class="dock-mic">
+            <button type="button" id="mic" data-act="switch-mic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM5 11a7 7 0 0 0 14 0M8 16l-3 3M16 16l3 3"/></svg><span>Mic</span></button>
+            <button type="button" class="mic-setup" data-act="mic-setup" aria-label="Choose microphones"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16M8 7v0M16 12v0M10 17v0"/></svg><span>Mics</span></button>
+          </div>
         </footer>
       </section>
+      <div id="sheet" class="sheet" hidden="hidden"></div>
 
     </main>
     <script src="scripts/widget.js"></script>

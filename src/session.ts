@@ -12,6 +12,7 @@ import {
   applySpeaking,
   applyVoiceState,
   asRecord,
+  nextSpeakingWait,
   blankModel,
   dismissNotice,
   dropMessage,
@@ -68,6 +69,7 @@ export class Session {
   private readonly avatars = new Map<string, { hash: string; bytes: Buffer; type: string }>();
   private ready = false;
   private stopped = false;
+  private speakingTimer: NodeJS.Timeout | null = null;
   private looping = false;
   private allowPrompt = true;
   private watchedVoice: string | null = null;
@@ -79,6 +81,8 @@ export class Session {
     this.config = config;
     this.model.configured = Boolean(config.clientId && config.clientSecret);
     this.model.clientId = config.clientId;
+    this.model.micA = config.micA;
+    this.model.micB = config.micB;
     this.model.phase = this.model.configured ? "discord-down" : "need-setup";
     this.model.detail = this.model.configured ? "Discord is not open." : "";
   }
@@ -103,8 +107,9 @@ export class Session {
 
   stop(): void {
     this.stopped = true;
+    clearTimeout(this.speakingTimer ?? undefined);
+    this.speakingTimer = null;
     this.wake();
-    this.socket?.destroy();
     this.rejectPending(new Error("stopped"));
   }
 
@@ -165,6 +170,10 @@ export class Session {
           return await this.setVoice({ input: { device_id: typeof row.deviceId === "string" ? row.deviceId : "" } });
         case "output-device":
           return await this.setVoice({ output: { device_id: typeof row.deviceId === "string" ? row.deviceId : "" } });
+        case "switch-mic":
+          return await this.switchMic();
+        case "save-mics":
+          return this.saveMics(row);
         case "channels": {
           const guildId = snowflake(row.guildId);
           if (!guildId) return { ok: false, detail: "Server is missing." };
@@ -221,7 +230,7 @@ export class Session {
     const cached = this.avatars.get(id);
     if (cached?.hash === hash) return cached;
     const ext = hash.startsWith("a_") ? "gif" : "png";
-    const response = await fetch(`https://cdn.discordapp.com/avatars/${id}/${hash}.${ext}?size=64`);
+    const response = await fetch(`https://cdn.discordapp.com/avatars/${id}/${hash}.${ext}?size=256`);
     if (!response.ok) return null;
     const stored = {
       hash,
@@ -235,6 +244,18 @@ export class Session {
   private emit(): void {
     const snap = this.snapshot();
     for (const listener of this.listeners) listener(snap);
+  }
+
+  private scheduleSpeaking(): void {
+    clearTimeout(this.speakingTimer ?? undefined);
+    this.speakingTimer = null;
+    const wait = nextSpeakingWait(this.model, Date.now());
+    if (wait == null) return;
+    this.speakingTimer = setTimeout(() => {
+      this.speakingTimer = null;
+      this.emit();
+      this.scheduleSpeaking();
+    }, wait);
   }
 
   private kick(): void {
@@ -468,14 +489,19 @@ export class Session {
     await this.loadOccupants();
     const texts = this.model.channels.filter((channel) => channel.type === 0 || channel.type === 5);
     const text = texts.find((channel) => channel.name === "general") ?? texts[0];
-    if (!this.watchedChat && text) {
-      try {
-        await this.watchChat(text.id);
-      } catch {
-        this.model.chatError = "Chat is not available for this server.";
+    const watchingHere = texts.some((channel) => channel.id === this.model.chatChannelId);
+    if (!watchingHere) {
+      if (text) {
+        try {
+          await this.watchChat(text.id);
+        } catch {
+          this.model.chatError = "Chat is not available for this server.";
+        }
+      } else {
+        await this.unwatchChat();
+        setChatChannel(this.model, null, null);
+        this.model.chatError = "Discord did not send this server's text channels. Mentions still show at the top.";
       }
-    } else if (!text && !this.model.chatChannelId) {
-      this.model.chatError = "Discord did not send this server's text channels. Mentions still show at the top.";
     }
   }
 
@@ -529,17 +555,22 @@ export class Session {
     for (const evt of VOICE_EVENTS) await this.rpc("SUBSCRIBE", { channel_id: channelId }, evt);
   }
 
-  private async watchChat(channelId: string): Promise<void> {
-    const known = this.model.channels.find((channel) => channel.id === channelId);
-    if (this.watchedChat && this.watchedChat !== channelId) {
-      for (const evt of MESSAGE_EVENTS) {
-        try {
-          await this.rpc("UNSUBSCRIBE", { channel_id: this.watchedChat }, evt);
-        } catch {
-          /* already gone */
-        }
+  private async unwatchChat(): Promise<void> {
+    if (!this.watchedChat) return;
+    const previous = this.watchedChat;
+    this.watchedChat = null;
+    for (const evt of MESSAGE_EVENTS) {
+      try {
+        await this.rpc("UNSUBSCRIBE", { channel_id: previous }, evt);
+      } catch {
+        /* already gone */
       }
     }
+  }
+
+  private async watchChat(channelId: string): Promise<void> {
+    const known = this.model.channels.find((channel) => channel.id === channelId);
+    if (this.watchedChat && this.watchedChat !== channelId) await this.unwatchChat();
     setChatChannel(this.model, channelId, known?.name ?? null);
     this.watchedChat = channelId;
     for (const evt of MESSAGE_EVENTS) await this.rpc("SUBSCRIBE", { channel_id: channelId }, evt);
@@ -588,6 +619,25 @@ export class Session {
     return { ok: true };
   }
 
+  private async switchMic(): Promise<Record<string, unknown>> {
+    const { micA, micB } = this.model;
+    if (!micA || !micB) return { ok: false, detail: "Choose two microphones first." };
+    const next = this.model.settings.inputDeviceId === micA ? micB : micA;
+    return await this.setVoice({ input: { device_id: next } });
+  }
+
+  private saveMics(row: Record<string, unknown>): Record<string, unknown> {
+    const a = typeof row.a === "string" ? row.a : "";
+    const b = typeof row.b === "string" ? row.b : "";
+    if (!a || !b || a === b) return { ok: false, detail: "Pick two different microphones." };
+    this.config = { ...this.config, micA: a, micB: b };
+    saveConfig(this.config);
+    this.model.micA = a;
+    this.model.micB = b;
+    this.emit();
+    return { ok: true };
+  }
+
   private async setUserVolume(body: Record<string, unknown>): Promise<Record<string, unknown>> {
     const userId = snowflake(body.userId);
     const volume = typeof body.volume === "number" ? Math.round(body.volume) : NaN;
@@ -631,6 +681,7 @@ export class Session {
     } else if (evt === "SPEAKING_START" || evt === "SPEAKING_STOP") {
       const speaking = asRecord(data);
       applySpeaking(this.model, evt, typeof speaking?.user_id === "string" ? speaking.user_id : "", now);
+      this.scheduleSpeaking();
     } else if (evt === "VOICE_SETTINGS_UPDATE") {
       applySettings(this.model, data);
     } else if (evt === "VOICE_CONNECTION_STATUS") {

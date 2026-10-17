@@ -19,6 +19,7 @@ let sideKey = "";
 let gateKey = "";
 let started = false;
 let volumeTimer = 0;
+let dragging = false;
 
 icueEvents = {
   onICUEInitialized: init,
@@ -37,6 +38,7 @@ function init() {
   applyLayout(readLayout());
   document.querySelector("#app").addEventListener("click", onClick);
   document.querySelector("#app").addEventListener("change", onChange);
+  new ResizeObserver(() => fitRoster()).observe(roster);
   connect();
   window.setInterval(paintTimer, 1000);
 }
@@ -185,7 +187,31 @@ function showFormError(fields, text) {
   fields.append(el("p", "error", text));
 }
 
+let channelLoad = "";
+function ensureVoiceGuild(next) {
+  const guildId = next.voice?.guildId || "";
+  if (!guildId) return;
+  if (guildId !== next.activeGuildId) {
+    if (guildId === channelLoad) return;
+    channelLoad = guildId;
+    void actPost({ type: "channels", guildId });
+    return;
+  }
+  const texts = guildChannels(next, 0).concat(guildChannels(next, 5));
+  const chatId = next.chat?.channelId || "";
+  if (!texts.length || texts.some((channel) => channel.id === chatId) || channelLoad === "chat:" + guildId) return;
+  channelLoad = "chat:" + guildId;
+  const text = texts.find((channel) => channel.name === "general") || texts[0];
+  void actPost({ type: "watch-chat", channelId: text.id });
+}
+
+function guildChannels(next, type) {
+  const guildId = next.voice?.guildId;
+  return (next.channels || []).filter((channel) => channel.type === type && (!guildId || channel.guildId === guildId));
+}
+
 function renderCall(next) {
+  ensureVoiceGuild(next);
   document.querySelector("#guild").textContent = next.voice.guildName || "Discord";
   document.querySelector("#channel").textContent = next.voice.channelName || "Not in voice";
   document.querySelector("#count").textContent = next.voice.members.length ? next.voice.members.length + " in call" : "No call";
@@ -250,21 +276,32 @@ function paintDock(next) {
   document.querySelector("#mute").setAttribute("aria-pressed", String(next.voice.selfMute));
   document.querySelector("#deafen").setAttribute("aria-pressed", String(next.voice.selfDeaf));
   document.querySelector("#leave").disabled = !next.voice.channelId;
+  const mic = document.querySelector("#mic");
+  const pair = next.mics || { a: "", b: "" };
+  const devices = next.settings?.inputDevices || [];
+  const nameOf = (id) => devices.find((item) => item.id === id)?.name || "";
+  const target = pair.a && pair.b ? (next.settings.inputDeviceId === pair.a ? pair.b : pair.a) : "";
+  mic.querySelector("span").textContent = target ? shortDevice(nameOf(target) || "Mic") : "Mic";
+  mic.title = target ? "Switch to " + (nameOf(target) || "the other microphone") : "Choose two microphones";
 }
 
 function buildRoster(next) {
   const shown = next.voice.members.slice(0, 25);
-  roster.dataset.count = String(shown.length);
-  roster.style.setProperty("--face", facePx(shown.length) + "px");
   roster.replaceChildren();
   if (shown.length === 0) {
+    roster.dataset.count = "0";
     roster.append(el("p", "empty", next.voice.channelId ? "Nobody else in the channel" : "Not in voice"));
+    fitRoster();
     return;
   }
   for (const member of shown) roster.append(personButton(member));
   if (next.voice.members.length > shown.length) {
     roster.append(el("p", "hint", "+" + (next.voice.members.length - shown.length) + " more"));
   }
+  roster.dataset.count = String(shown.length);
+  roster.style.setProperty("--face", facePx(shown.length) + "px");
+  fitRoster();
+  requestAnimationFrame(fitRoster);
 }
 
 function patchRoster(next) {
@@ -276,20 +313,38 @@ function patchRoster(next) {
     node.classList.toggle("selected", member.id === selected);
     const status = node.querySelector(".status");
     if (status) status.textContent = statusText(member);
+    syncBadge(node.querySelector(".face-wrap"), member);
+    const note = node.querySelector(".self-state");
+    if (note) note.textContent = selfState(member);
+    const range = node.querySelector(".vol");
+    const read = node.querySelector(".vol-read");
+    if (range && document.activeElement !== range) {
+      range.value = String(member.volume);
+      if (read) read.textContent = member.volume + "%";
+    }
+    const mute = node.querySelector("[data-act=user-mute]");
+    if (mute) {
+      mute.dataset.mute = String(!member.localMute);
+      mute.setAttribute("aria-pressed", String(member.localMute));
+      mute.textContent = member.localMute ? "Unmute" : "Mute";
+    }
   }
 }
 
 function personButton(member) {
-  const node = document.createElement("button");
-  node.type = "button";
+  const node = document.createElement("article");
   node.className = "person";
-  node.dataset.act = "person";
-  node.dataset.id = member.id;
   node.dataset.person = member.id;
   node.classList.toggle("speaking", member.speaking);
   node.classList.toggle("self", member.self);
   node.classList.toggle("muted", member.selfMute || member.serverMute || member.localMute);
   node.classList.toggle("selected", member.id === selected);
+  const open = document.createElement("button");
+  open.type = "button";
+  open.className = "person-open";
+  open.dataset.act = "person";
+  open.dataset.id = member.id;
+  const wrap = el("span", "face-wrap");
   const face = el("span", "face");
   face.style.setProperty("--face-color", faceColor(member.id));
   const img = document.createElement("img");
@@ -300,15 +355,73 @@ function personButton(member) {
     face.textContent = initials(member.name);
   });
   face.append(img);
-  node.append(face, el("span", "name", member.name), el("span", "status", statusText(member)));
+  wrap.append(face);
+  syncBadge(wrap, member);
+  const copy = el("span", "who-copy");
+  copy.append(el("span", "name", member.name), el("span", "status", statusText(member)));
+  open.append(wrap, copy);
+  const body = el("div", "person-body");
+  body.append(open);
+  if (member.self) body.append(selfNote(member));
+  else body.append(personTools(member));
+  node.append(body);
   return node;
+}
+
+function personTools(member) {
+  const tools = el("div", "tools");
+  tools.append(el("p", "tool-label", "Volume"));
+  const line = el("label", "vol-line");
+  const read = el("span", "vol-read", member.volume + "%");
+  const range = document.createElement("input");
+  range.type = "range";
+  range.className = "vol";
+  range.min = "0";
+  range.max = "200";
+  range.value = String(member.volume);
+  range.setAttribute("aria-label", "Volume for " + member.name);
+  range.addEventListener("pointerdown", () => { dragging = true; });
+  range.addEventListener("pointerup", () => {
+    dragging = false;
+    sendVolume(member.id, Number(range.value));
+  });
+  range.addEventListener("pointercancel", () => { dragging = false; });
+  range.addEventListener("input", () => {
+    read.textContent = range.value + "%";
+    window.clearTimeout(volumeTimer);
+    volumeTimer = window.setTimeout(() => sendVolume(member.id, Number(range.value)), 140);
+  });
+  line.append(read, range);
+  const mute = document.createElement("button");
+  mute.type = "button";
+  mute.className = "chip";
+  mute.dataset.act = "user-mute";
+  mute.dataset.id = member.id;
+  mute.dataset.mute = String(!member.localMute);
+  mute.setAttribute("aria-pressed", String(member.localMute));
+  mute.textContent = member.localMute ? "Unmute" : "Mute";
+  tools.append(line, mute);
+  return tools;
+}
+
+function selfNote(member) {
+  const note = el("div", "tools self-note");
+  note.append(el("p", "tool-label", "You"));
+  note.append(el("p", "self-state", selfState(member)));
+  return note;
+}
+
+function selfState(member) {
+  if (member.selfDeaf || member.serverDeaf) return "Deafened";
+  if (member.selfMute || member.serverMute) return "Muted";
+  return "Mic open";
 }
 
 function buildChannels(next) {
   channels.replaceChildren();
-  const voices = next.channels.filter((channel) => channel.type === 2 || channel.type === 13);
+  const voices = guildChannels(next, 2).concat(guildChannels(next, 13));
   if (next.voice.channelId && !voices.some((channel) => channel.id === next.voice.channelId)) {
-    voices.unshift({ id: next.voice.channelId, name: next.voice.channelName || "Voice", type: 2, people: next.voice.members });
+    voices.unshift({ id: next.voice.channelId, name: next.voice.channelName || "Voice", type: 2, guildId: next.voice.guildId || "", people: next.voice.members });
   }
   if (voices.length === 0) {
     channels.append(el("p", "hint", "Discord did not send any voice channels."));
@@ -353,7 +466,7 @@ function buildSide(next) {
   if (!side) return;
   const chat = next.chat || { channelId: null, channelName: null, messages: [], error: "" };
   side.replaceChildren(el("p", "panel-title", chat.channelName ? "#" + chat.channelName : "Chat"));
-  const texts = (next.channels || []).filter((channel) => channel.type === 0 || channel.type === 5);
+  const texts = guildChannels(next, 0).concat(guildChannels(next, 5));
   if (texts.length > 0) {
     const select = document.createElement("select");
     select.dataset.act = "watch-chat";
@@ -465,7 +578,8 @@ function onClick(event) {
     selected = target.dataset.id;
     sideKey = "";
     if (snap) renderCall(snap);
-    if (sideHidden()) openVolumeSheet();
+    const tools = target.closest(".person")?.querySelector(".tools");
+    if (sideHidden() && !(tools && getComputedStyle(tools).display !== "none")) openVolumeSheet();
     return;
   }
   if (act === "copy") {
@@ -499,6 +613,28 @@ function onClick(event) {
   }
   if (act === "authorize" || act === "browser-auth" || act === "clear" || act === "mute" || act === "deafen" || act === "leave") {
     void actPost({ type: act === "browser-auth" ? "browser-auth" : act === "authorize" ? "authorize" : act });
+    return;
+  }
+  if (act === "mic-setup") {
+    openMicSheet();
+    return;
+  }
+  if (act === "switch-mic") {
+    if (!snap?.mics?.a || !snap?.mics?.b) openMicSheet();
+    else void actPost({ type: "switch-mic" });
+    return;
+  }
+  if (act === "save-mics") {
+    const a = document.querySelector("#mic-a")?.value || "";
+    const b = document.querySelector("#mic-b")?.value || "";
+    void post("/v1/action", { type: "save-mics", a, b }).then((result) => {
+      const hint = sheet.querySelector(".hint");
+      if (result && result.ok === false) {
+        if (hint) hint.textContent = result.detail || "Could not save.";
+        return;
+      }
+      sheet.hidden = true;
+    });
     return;
   }
   if (act === "channels") void actPost({ type: "channels", guildId: target.dataset.id });
@@ -546,6 +682,44 @@ function openVolumeSheet() {
   sheet.append(range, button("Close", "cancel", "text-btn"));
 }
 
+function openMicSheet() {
+  if (!sheet || !snap) return;
+  const devices = snap.settings.inputDevices || [];
+  sheet.hidden = false;
+  sheet.replaceChildren(
+    el("p", "who", "Two microphones"),
+    el("p", "hint", devices.length ? "The dock button switches between these." : "Discord has not sent any microphones yet."),
+    micSelect("mic-a", "First", snap.mics?.a || "", devices),
+    micSelect("mic-b", "Second", snap.mics?.b || "", devices),
+    button("Save", "save-mics", "primary"),
+    button("Close", "cancel", "text-btn"),
+  );
+}
+
+function micSelect(id, label, current, devices) {
+  const wrap = el("label", "hint", label);
+  const select = document.createElement("select");
+  select.id = id;
+  const blank = document.createElement("option");
+  blank.value = "";
+  blank.textContent = "Choose";
+  select.append(blank);
+  for (const device of devices) {
+    const option = document.createElement("option");
+    option.value = device.id;
+    option.textContent = device.name;
+    option.selected = device.id === current;
+    select.append(option);
+  }
+  wrap.append(select);
+  return wrap;
+}
+
+function shortDevice(name) {
+  const bare = name.replace(/\s*\(.*$/, "").trim() || name;
+  return bare.length > 14 ? bare.slice(0, 13).trim() + "…" : bare;
+}
+
 function sideHidden() {
   return getComputedStyle(side).display === "none";
 }
@@ -560,8 +734,61 @@ function applyLayout(compact) {
   button.textContent = compact ? "Full" : "Compact";
   button.setAttribute("aria-pressed", String(compact));
   try { localStorage.setItem("edge-discord-layout", compact ? "compact" : "full"); } catch { /* iCUE may block storage */ }
+  requestAnimationFrame(fitRoster);
 }
 
+
+function fitRoster() {
+  if (!document.querySelector("#app").classList.contains("compact")) return;
+  const count = Number(roster.dataset.count || 0);
+  const box = roster.getBoundingClientRect();
+  if (box.width < 40 || box.height < 40) return;
+  const fit = fitGrid(Math.max(count, 1), box.width, box.height);
+  if (roster.style.getPropertyValue("--cols") === String(fit.cols) && roster.style.getPropertyValue("--rows") === String(fit.rows)) return;
+  roster.style.setProperty("--cols", String(fit.cols));
+  roster.style.setProperty("--rows", String(fit.rows));
+}
+
+function fitGrid(count, width, height) {
+  if (count <= 1) return { cols: 1, rows: 1 };
+  const gap = 10;
+  let best = null;
+  for (let cols = 1; cols <= count; cols++) {
+    const rows = Math.ceil(count / cols);
+    const cw = (width - gap * (cols - 1)) / cols;
+    const ch = (height - gap * (rows - 1)) / rows;
+    if (cw < 88 || ch < 88) continue;
+    const aspect = cw / ch;
+    const aspectPenalty = aspect < 0.62 ? (0.62 - aspect) * 4 : aspect > 1.55 ? (aspect - 1.55) * 2.2 : 0;
+    const empty = cols * rows - count;
+    const score = cw * ch - aspectPenalty * 9000 - empty * 14000;
+    if (!best || score > best.score) best = { cols, rows, score };
+  }
+  if (best) return best;
+  const cols = Math.max(1, Math.min(count, Math.floor((width + gap) / (110 + gap))));
+  return { cols, rows: Math.ceil(count / cols) };
+}
+
+function syncBadge(wrap, member) {
+  if (!wrap) return;
+  const deaf = member.serverDeaf || member.selfDeaf;
+  const muted = member.selfMute || member.serverMute || member.localMute;
+  const kind = deaf ? "deaf" : muted ? "mute" : "";
+  const current = wrap.querySelector(".badge");
+  if (!kind) {
+    current?.remove();
+    return;
+  }
+  if (current?.dataset.kind === kind) return;
+  current?.remove();
+  const badge = el("span", kind === "deaf" ? "badge deaf" : "badge");
+  badge.dataset.kind = kind;
+  badge.setAttribute("aria-hidden", "true");
+  badge.innerHTML = kind === "deaf"
+    ? '<svg viewBox="0 0 24 24"><path d="M4 13a8 8 0 0 1 16 0v5a2 2 0 0 1-2 2h-2v-7h4M4 13v5a2 2 0 0 0 2 2h2v-7H4M3 4l18 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
+    : '<svg viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM5 11a7 7 0 0 0 14 0M12 18v3M4 4l16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+  wrap.append(badge);
+}
 
 function facePx(count) {
   if (count <= 1) return 128;
@@ -612,7 +839,9 @@ function cssEscape(value) {
 
 function statusText(member) {
   if (member.speaking) return "speaking";
-  if (member.selfMute || member.serverMute || member.localMute) return "muted";
+  if (member.serverDeaf || member.selfDeaf) return "deafened";
+  if (member.serverMute) return "server muted";
+  if (member.selfMute || member.localMute) return "muted";
   if (member.self) return "you";
   return member.volume + "%";
 }

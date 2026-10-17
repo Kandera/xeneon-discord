@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   applyChannel,
+  applyChannels,
   applySpeaking,
   applyVoiceState,
   blankModel,
@@ -62,8 +63,32 @@ test("a missed speaking-stop expires instead of sticking", () => {
   const model = blankModel();
   applyChannel(model, channel, 1_000);
   applySpeaking(model, "SPEAKING_START", "2", 5_000);
-  assert.equal(snapshot(model, 5_100).voice.members.find((member) => member.id === "2")?.speaking, true);
+  assert.equal(snapshot(model, 5_100).voice.members.find((member) => member.id === "2")?.speaking, false);
+  assert.equal(snapshot(model, 6_000).voice.members.find((member) => member.id === "2")?.speaking, true);
   assert.equal(snapshot(model, 8_000).voice.members.find((member) => member.id === "2")?.speaking, false);
+});
+
+test("a mic blip under one second never lights up or jumps ahead", () => {
+  const model = blankModel();
+  applyChannel(model, channel, 1_000);
+  applySpeaking(model, "SPEAKING_START", "2", 2_000);
+  applySpeaking(model, "SPEAKING_STOP", "2", 2_400);
+  const snap = snapshot(model, 2_400);
+  assert.equal(snap.voice.members.find((member) => member.id === "2")?.speaking, false);
+  assert.equal(snap.voice.members[0]?.id, "3");
+});
+
+test("speech that holds past the grace moves to the front", () => {
+  const model = blankModel();
+  applyChannel(model, channel, 1_000);
+  applySpeaking(model, "SPEAKING_START", "3", 2_000);
+  applySpeaking(model, "SPEAKING_START", "3", 2_300);
+  assert.equal(snapshot(model, 2_900).voice.members.find((member) => member.id === "3")?.speaking, false);
+  const shown = snapshot(model, 3_000);
+  assert.equal(shown.voice.members.find((member) => member.id === "3")?.speaking, true);
+  assert.equal(shown.voice.members[0]?.id, "3");
+  applySpeaking(model, "SPEAKING_STOP", "3", 3_200);
+  assert.equal(snapshot(model, 3_200).voice.members.find((member) => member.id === "3")?.speaking, false);
 });
 
 test("voice delete removes the person and their speaking flag", () => {
@@ -73,6 +98,15 @@ test("voice delete removes the person and their speaking flag", () => {
   applyVoiceState(model, "VOICE_STATE_DELETE", { user: { id: "2", username: "mira" } });
   const snap = snapshot(model, 1_100);
   assert.equal(snap.voice.members.some((member) => member.id === "2"), false);
+});
+
+test("joining voice does not claim that server's channel list is loaded", () => {
+  const model = blankModel();
+  applyChannels(model, "9", { channels: [{ id: "8", name: "welcome", type: 0 }] });
+  applyChannel(model, channel, 1_000);
+  assert.equal(model.guildId, "1");
+  assert.equal(model.activeGuildId, "9");
+  assert.equal(model.channels[0]?.name, "welcome");
 });
 
 test("notices keep the newest six", () => {

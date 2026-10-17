@@ -8,6 +8,7 @@ import {
   dismissNotice,
   pushNotice,
   setChatChannel,
+  nextSpeakingWait,
   snapshot,
   type Snapshot,
 } from "./state.ts";
@@ -23,6 +24,7 @@ export class DemoBridge {
   private readonly speakerIds = ["200000000000000002", "200000000000000003", "200000000000000004"];
   private speaker = 0;
   private timer: NodeJS.Timeout;
+  private speakingTimer: NodeJS.Timeout | null = null;
 
   constructor() {
     this.model.phase = "ready";
@@ -127,6 +129,14 @@ export class DemoBridge {
     }
     if (type === "dismiss" && typeof row.id === "string") dismissNotice(this.model, row.id);
     if (type === "watch-chat") setChatChannel(this.model, TEXT, "ops");
+    if (type === "save-mics" && typeof row.a === "string" && typeof row.b === "string") {
+      this.model.micA = row.a;
+      this.model.micB = row.b;
+    }
+    if (type === "switch-mic" && this.model.micA && this.model.micB) {
+      this.model.settings.inputDeviceId = this.model.settings.inputDeviceId === this.model.micA ? this.model.micB : this.model.micA;
+    }
+    if (type === "input-device" && typeof row.deviceId === "string") this.model.settings.inputDeviceId = row.deviceId;
     if (type === "clear") {
       this.model.phase = "need-setup";
       this.model.configured = false;
@@ -143,6 +153,7 @@ export class DemoBridge {
 
   stop(): void {
     clearInterval(this.timer);
+    clearTimeout(this.speakingTimer ?? undefined);
   }
 
   private rotate(): void {
@@ -156,6 +167,9 @@ export class DemoBridge {
   private emit(): void {
     const snap = this.snapshot();
     for (const listener of this.listeners) listener(snap);
+    clearTimeout(this.speakingTimer ?? undefined);
+    const wait = nextSpeakingWait(this.model, Date.now());
+    this.speakingTimer = wait == null ? null : setTimeout(() => this.emit(), wait);
   }
 }
 

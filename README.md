@@ -17,6 +17,8 @@ Log: `%LOCALAPPDATA%\XeneonDiscord\bridge.log`
 
 Client ID, client secret, and tokens live only in `%LOCALAPPDATA%\XeneonDiscord\config.json`. That file is not part of this repo. Do not commit it, and do not paste a secret or token into an issue.
 
+The dock button switches between two microphones. Tap the mark on that button to choose them. The choice stays in the local config, not in this repo.
+
 Preview without Discord: `npm run demo`, then http://127.0.0.1:47331/preview/
 
 ## Discord app
