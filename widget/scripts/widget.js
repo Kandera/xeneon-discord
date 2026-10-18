@@ -783,10 +783,31 @@ function micSelect(id, label, current, devices) {
 }
 
 function shortDevice(name) {
-  const bare = name.replace(/\s*\(.*$/, "").trim() || name;
-  return bare.length > 14 ? bare.slice(0, 13).trim() + "…" : bare;
+  const raw = String(name || "").trim();
+  if (!raw) return "Mic";
+  const match = raw.match(/^(.*)\(([^()]*)\)\s*$/);
+  const inside = match ? productWord(match[2]) : "";
+  if (inside) return clip(inside);
+  const outside = (match ? match[1] : raw).trim();
+  return clip(productWord(outside) || outside || raw);
 }
 
+function productWord(text) {
+  const drop = new Set([
+    "microphone", "mikrofon", "mikrofonarray", "mic", "headset", "headphone", "headphones",
+    "kopfhörer", "kopfhoerer", "speaker", "lautsprecher", "usb", "audio", "device", "gerät", "gerat",
+    "wireless", "default", "communication", "kommunikation", "chat", "game", "array",
+    "steelseries", "logitech", "corsair", "razer", "hyperx", "sony", "jabra", "elgato",
+    "rode", "samson", "fifine", "maono", "realtek", "nvidia", "amd", "microsoft", "blue",
+  ]);
+  const words = String(text || "").replace(/\(r\)/gi, " ").replace(/[®™]/g, " ").split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  return words.find((word) => !drop.has(word.toLowerCase()) && !/^\d+$/.test(word)) || "";
+}
+
+function clip(name) {
+  const text = String(name || "").trim();
+  return text.length > 14 ? text.slice(0, 13).trim() + "…" : text;
+}
 function sideHidden() {
   return getComputedStyle(side).display === "none";
 }
