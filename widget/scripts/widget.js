@@ -313,6 +313,7 @@ function buildRoster(next) {
     fitRoster();
     return;
   }
+  roster.querySelector(":scope > .empty")?.remove();
   const countChanged = roster.dataset.count !== String(shown.length);
   for (const member of shown) {
     let node = cards.get(member.id);
