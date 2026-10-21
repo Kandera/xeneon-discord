@@ -140,10 +140,15 @@ h1 {
   overflow: hidden;
   contain: layout;
 }
-.person.selected { border-color: color-mix(in srgb, var(--accent-color) 70%, white); }
+
 .person.speaking {
   border-color: var(--speak);
-  box-shadow: 0 0 0 1px var(--speak), 0 0 22px color-mix(in srgb, var(--speak) 28%, transparent);
+  box-shadow:
+    inset 0 0 0 3px var(--speak),
+    inset 0 0 46px color-mix(in srgb, var(--speak) 62%, transparent);
+}
+.person.speaking .face {
+  box-shadow: 0 0 0 3px var(--speak), 0 0 24px color-mix(in srgb, var(--speak) 85%, transparent);
 }
   .face {
   width: var(--face, 72px);
@@ -241,14 +246,35 @@ h1 {
   color: var(--faint);
   font-size: 13px;
   font-variant-numeric: tabular-nums;
+  touch-action: none;
 }
 .vol-read { flex: 0 0 3.4em; text-align: right; }
 .vol-line input[type="range"] {
   flex: 1 1 auto;
   width: 100%;
   min-width: 0;
-  accent-color: var(--accent-color);
-  height: 28px;
+  height: 40px;
+  margin: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  touch-action: none;
+  cursor: pointer;
+}
+.vol-line input[type="range"]::-webkit-slider-runnable-track {
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent-color) var(--pct, 50%), rgba(255, 255, 255, 0.16) var(--pct, 50%));
+}
+.vol-line input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  margin-top: -7px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--text-color);
 }
 .chip {
   width: 100%;
@@ -270,8 +296,15 @@ h1 {
   outline: 2px solid var(--accent-color);
   outline-offset: 2px;
 }
-@container person (min-height: 210px) and (min-width: 150px) {
+@container person (min-height: 200px) and (min-width: 96px) {
   .tools { display: flex; }
+}
+@container person (max-width: 148px) {
+  .tool-label { display: none; }
+  .tools { padding: 0 6px 8px; gap: 0; }
+  .vol-line { gap: 4px; }
+  .vol-read { flex: 0 0 2.8em; font-size: 11px; }
+  .vol-line input[type="range"] { height: 32px; }
 }
 @container person (min-height: 300px) {
   .name { font-size: 18px; }
@@ -575,6 +608,8 @@ label.hint { display: flex; flex-direction: column; gap: 6px; }
   height: 100%;
   min-height: 0;
   border-radius: 18px;
+  border-color: rgba(255, 255, 255, 0.16);
+  background: var(--raised);
 }
 #app.compact .person-body {
   display: flex;
@@ -582,31 +617,34 @@ label.hint { display: flex; flex-direction: column; gap: 6px; }
   height: 100%;
   min-height: 0;
 }
-#app.compact .person-open { min-height: 0; }
-#app.compact .person-body::after {
-  content: "";
-  flex: 0 100 116px;
+#app.compact .person-open {
+  flex: 1 1 auto;
   min-height: 0;
-  max-height: 116px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 8px 8px 4px;
+  gap: 4px;
 }
+#app.compact .face-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#app.compact .who-copy { flex: 0 0 auto; width: 100%; }
 #app.compact .tools { height: auto; flex: 0 0 auto; justify-content: center; }
-.self-state { margin: 0; font-size: 16px; font-weight: 640; }
-.person.self.muted .self-state { color: var(--mute); }
 #app.compact .face {
-  width: min(80cqw, 54cqh, calc(100cqh - 84px), 340px);
-  height: min(80cqw, 54cqh, calc(100cqh - 84px), 340px);
-  font-size: calc(min(80cqw, 54cqh, calc(100cqh - 84px), 340px) * 0.34);
+  width: min(var(--face, 64px), 100%);
+  height: min(var(--face, 64px), 100%);
+  max-width: 100%;
+  max-height: 100%;
 }
-@container person (max-height: 279px) {
-  #app.compact .tools { display: none; }
-}
-@container person (min-height: 280px) and (min-width: 150px) {
-  #app.compact .person-body::after { display: none; }
-  #app.compact .face {
-    width: min(80cqw, 54cqh, calc(100cqh - 212px), 340px);
-    height: min(80cqw, 54cqh, calc(100cqh - 212px), 340px);
-    font-size: calc(min(80cqw, 54cqh, calc(100cqh - 212px), 340px) * 0.34);
-  }
+@container person (max-height: 132px) {
+  #app.compact .status { display: none; }
+  #app.compact .person-open { padding: 4px; gap: 2px; }
 }
 @container person (min-aspect-ratio: 1.35) and (min-width: 460px) {
   #app.compact .face {
@@ -623,7 +661,7 @@ label.hint { display: flex; flex-direction: column; gap: 6px; }
     padding: 20px 28px;
     grid-template-rows: none;
   }
-  #app.compact .person-body::after { display: none; }
+
   #app.compact .person-open { flex: 0 1 auto; width: auto; justify-content: flex-start; }
   #app.compact .name { font-size: 32px; }
   #app.compact .status { font-size: 16px; }

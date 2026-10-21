@@ -63,32 +63,32 @@ test("a missed speaking-stop expires instead of sticking", () => {
   const model = blankModel();
   applyChannel(model, channel, 1_000);
   applySpeaking(model, "SPEAKING_START", "2", 5_000);
-  assert.equal(snapshot(model, 5_100).voice.members.find((member) => member.id === "2")?.speaking, false);
+  assert.equal(snapshot(model, 5_100).voice.members.find((member) => member.id === "2")?.speaking, true);
   assert.equal(snapshot(model, 6_000).voice.members.find((member) => member.id === "2")?.speaking, true);
   assert.equal(snapshot(model, 8_000).voice.members.find((member) => member.id === "2")?.speaking, false);
 });
 
-test("a mic blip under one second never lights up or jumps ahead", () => {
+test("a stopped blip does not stay lit or jump ahead", () => {
   const model = blankModel();
   applyChannel(model, channel, 1_000);
+  const order = snapshot(model, 1_900).voice.members.map((member) => member.id);
   applySpeaking(model, "SPEAKING_START", "2", 2_000);
   applySpeaking(model, "SPEAKING_STOP", "2", 2_400);
   const snap = snapshot(model, 2_400);
   assert.equal(snap.voice.members.find((member) => member.id === "2")?.speaking, false);
-  assert.equal(snap.voice.members[0]?.id, "3");
+  assert.deepEqual(snap.voice.members.map((member) => member.id), order);
 });
 
-test("speech that holds past the grace moves to the front", () => {
+test("speech lights immediately and stays in place", () => {
   const model = blankModel();
   applyChannel(model, channel, 1_000);
+  const order = snapshot(model, 1_900).voice.members.map((member) => member.id);
   applySpeaking(model, "SPEAKING_START", "3", 2_000);
-  applySpeaking(model, "SPEAKING_START", "3", 2_300);
-  assert.equal(snapshot(model, 2_900).voice.members.find((member) => member.id === "3")?.speaking, false);
-  const shown = snapshot(model, 3_000);
+  const shown = snapshot(model, 2_000);
   assert.equal(shown.voice.members.find((member) => member.id === "3")?.speaking, true);
-  assert.equal(shown.voice.members[0]?.id, "3");
-  applySpeaking(model, "SPEAKING_STOP", "3", 3_200);
-  assert.equal(snapshot(model, 3_200).voice.members.find((member) => member.id === "3")?.speaking, false);
+  assert.deepEqual(shown.voice.members.map((member) => member.id), order);
+  applySpeaking(model, "SPEAKING_STOP", "3", 2_200);
+  assert.equal(snapshot(model, 2_200).voice.members.find((member) => member.id === "3")?.speaking, false);
 });
 
 test("voice delete removes the person and their speaking flag", () => {

@@ -70,7 +70,6 @@ export interface Model {
   since: number | null;
   members: Map<string, Member>;
   speakingUntil: Map<string, number>;
-  speakingSince: Map<string, number>;
   settings: Settings;
   guilds: { id: string; name: string }[];
   channels: ChannelRef[];
@@ -120,7 +119,6 @@ export interface Snapshot {
 }
 
 const SPEAKING_HOLD_MS = 2200;
-const SPEAKING_GRACE_MS = 1000;
 const NOTICE_CAP = 6;
 const MESSAGE_CAP = 40;
 
@@ -155,7 +153,6 @@ export function blankModel(): Model {
     since: null,
     members: new Map(),
     speakingUntil: new Map(),
-    speakingSince: new Map(),
     settings: blankSettings(),
     guilds: [],
     channels: [],
@@ -221,14 +218,12 @@ export function applyChannel(model: Model, data: unknown, now: number): void {
     model.since = null;
     model.members.clear();
     model.speakingUntil.clear();
-    model.speakingSince.clear();
     return;
   }
   const nextId = text(channel.id);
   if (model.channelId !== nextId) {
     model.since = now;
     model.speakingUntil.clear();
-    model.speakingSince.clear();
   }
   model.channelId = nextId;
   model.channelName = text(channel.name) || model.channelName;
@@ -242,8 +237,7 @@ export function applyChannel(model: Model, data: unknown, now: number): void {
   for (const state of states) {
     const member = memberFromVoice(state);
     if (!member) continue;
-    const until = model.speakingUntil.get(member.id) ?? 0;
-    member.speaking = until > now && audible(model, member.id, now);
+    member.speaking = (model.speakingUntil.get(member.id) ?? 0) > now;
     next.set(member.id, member);
   }
   model.members = next;
@@ -255,12 +249,10 @@ export function applyVoiceState(model: Model, event: string, data: unknown): voi
   if (event === "VOICE_STATE_DELETE") {
     model.members.delete(member.id);
     model.speakingUntil.delete(member.id);
-    model.speakingSince.delete(member.id);
     return;
   }
   const now = Date.now();
-  const until = model.speakingUntil.get(member.id) ?? 0;
-  member.speaking = until > now && audible(model, member.id, now);
+  member.speaking = (model.speakingUntil.get(member.id) ?? 0) > now;
   model.members.set(member.id, member);
   if (model.user && member.id === model.user.id) {
     model.selfMute = member.selfMute;
@@ -275,13 +267,10 @@ export function applySpeaking(model: Model, event: string, userId: string, now: 
   const member = model.members.get(userId);
   const was = member?.speaking === true;
   if (event === "SPEAKING_START") {
-    if (!model.speakingSince.has(userId)) model.speakingSince.set(userId, now);
     model.speakingUntil.set(userId, now + SPEAKING_HOLD_MS);
-    const speaking = audible(model, userId, now);
-    if (member) member.speaking = speaking;
-    return speaking !== was;
+    if (member) member.speaking = true;
+    return member ? !was : false;
   }
-  model.speakingSince.delete(userId);
   model.speakingUntil.delete(userId);
   if (member) member.speaking = false;
   return was;
@@ -289,21 +278,19 @@ export function applySpeaking(model: Model, event: string, userId: string, now: 
 
 export function nextSpeakingWait(model: Model, now: number): number | null {
   let wait: number | null = null;
-  for (const [id, since] of model.speakingSince) {
-    const until = model.speakingUntil.get(id) ?? 0;
+  for (const until of model.speakingUntil.values()) {
     if (until <= now) continue;
-    const at = now < since + SPEAKING_GRACE_MS ? since + SPEAKING_GRACE_MS : until;
-    const delta = at - now;
+    const delta = until - now;
     if (wait == null || delta < wait) wait = delta;
   }
   return wait;
 }
 
 function audible(model: Model, userId: string, now: number): boolean {
-  const since = model.speakingSince.get(userId);
-  const until = model.speakingUntil.get(userId) ?? 0;
-  return since != null && until > now && now - since >= SPEAKING_GRACE_MS;
+  return (model.speakingUntil.get(userId) ?? 0) > now;
 }
+
+
 
 export function applySettings(model: Model, data: unknown): void {
   const row = asRecord(data);
@@ -415,7 +402,6 @@ export function snapshot(model: Model, now: number): Snapshot {
     return { ...member, speaking, self: model.user?.id === member.id };
   });
   members.sort((a, b) => {
-    if (a.speaking !== b.speaking) return a.speaking ? -1 : 1;
     if (a.self !== b.self) return a.self ? -1 : 1;
     return a.name.localeCompare(b.name, "de");
   });

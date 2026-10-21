@@ -12,7 +12,7 @@ const side = document.querySelector("#side");
 const cards = new Map();
 
 let snap = null;
-let selected = null;
+
 let pendingForce = null;
 let rosterKey = "";
 let channelKey = "";
@@ -22,7 +22,7 @@ let noticeKey = "";
 let dockKey = "";
 let started = false;
 let volumeTimer = 0;
-let dragging = false;
+const volumeDrag = new Set();
 
 icueEvents = {
   onICUEInitialized: init,
@@ -236,10 +236,7 @@ function renderCall(next) {
   } else {
     patchOccupants(next);
   }
-  const member = next.voice.members.find((item) => item.id === selected);
   const nextSide = [
-    selected,
-    dragging ? "drag" : member ? member.volume + ":" + member.localMute : "",
     next.chat.channelId,
     next.chat.messages.map((message) => message.id).join(","),
     next.settings.inputDeviceId,
@@ -345,7 +342,15 @@ function patchRoster(next) {
     if (!node) continue;
     node.classList.toggle("speaking", member.speaking);
     node.classList.toggle("muted", member.selfMute || member.serverMute || member.localMute);
-    node.classList.toggle("selected", member.id === selected);
+
+    const open = node.querySelector(".person-open");
+    if (open && !member.self) {
+      const pressed = String(member.localMute);
+      if (open.getAttribute("aria-pressed") !== pressed) {
+        open.setAttribute("aria-pressed", pressed);
+        open.setAttribute("aria-label", (member.localMute ? "Unmute " : "Mute ") + member.name);
+      }
+    }
     setText(node.querySelector(".name"), member.name);
     setText(node.querySelector(".status"), statusText(member));
     syncBadge(node.querySelector(".face-wrap"), member);
@@ -367,19 +372,7 @@ function patchRoster(next) {
     if (note) setText(note, selfState(member));
     const range = node.querySelector(".vol");
     const read = node.querySelector(".vol-read");
-    if (range && document.activeElement !== range) {
-      if (range.value !== String(member.volume)) range.value = String(member.volume);
-      if (read) setText(read, member.volume + "%");
-    }
-    const mute = node.querySelector("[data-act=user-mute]");
-    if (mute) {
-      const pressed = String(member.localMute);
-      if (mute.getAttribute("aria-pressed") !== pressed) {
-        mute.dataset.mute = String(!member.localMute);
-        mute.setAttribute("aria-pressed", pressed);
-        setText(mute, member.localMute ? "Unmute" : "Mute");
-      }
-    }
+    if (range && !volumeDrag.has(member.id)) paintVolume(range, read, member.volume);
   }
 }
 
@@ -404,12 +397,15 @@ function personButton(member) {
   node.classList.toggle("speaking", member.speaking);
   node.classList.toggle("self", member.self);
   node.classList.toggle("muted", member.selfMute || member.serverMute || member.localMute);
-  node.classList.toggle("selected", member.id === selected);
   const open = document.createElement("button");
   open.type = "button";
   open.className = "person-open";
   open.dataset.act = "person";
   open.dataset.id = member.id;
+  if (!member.self) {
+    open.setAttribute("aria-pressed", String(member.localMute));
+    open.setAttribute("aria-label", (member.localMute ? "Unmute " : "Mute ") + member.name);
+  }
   const wrap = el("span", "face-wrap");
   const face = el("span", "face");
   face.style.setProperty("--face-color", faceColor(member.id));
@@ -438,37 +434,82 @@ function personButton(member) {
 function personTools(member) {
   const tools = el("div", "tools");
   tools.append(el("p", "tool-label", "Volume"));
-  const line = el("label", "vol-line");
+  const line = el("div", "vol-line");
   const read = el("span", "vol-read", member.volume + "%");
   const range = document.createElement("input");
   range.type = "range";
   range.className = "vol";
   range.min = "0";
   range.max = "200";
+  range.step = "1";
   range.value = String(member.volume);
+  range.style.setProperty("--pct", (member.volume / 200) * 100 + "%");
   range.setAttribute("aria-label", "Volume for " + member.name);
-  range.addEventListener("pointerdown", () => { dragging = true; });
-  range.addEventListener("pointerup", () => {
-    dragging = false;
-    sendVolume(member.id, Number(range.value));
-  });
-  range.addEventListener("pointercancel", () => { dragging = false; });
-  range.addEventListener("input", () => {
-    read.textContent = range.value + "%";
-    window.clearTimeout(volumeTimer);
-    volumeTimer = window.setTimeout(() => sendVolume(member.id, Number(range.value)), 140);
-  });
+  bindVolume(range, read, member.id);
   line.append(read, range);
-  const mute = document.createElement("button");
-  mute.type = "button";
-  mute.className = "chip";
-  mute.dataset.act = "user-mute";
-  mute.dataset.id = member.id;
-  mute.dataset.mute = String(!member.localMute);
-  mute.setAttribute("aria-pressed", String(member.localMute));
-  mute.textContent = member.localMute ? "Unmute" : "Mute";
-  tools.append(line, mute);
+  tools.append(line);
   return tools;
+}
+
+function bindVolume(range, read, userId) {
+  const apply = (event) => {
+    const volume = volumeFromPointer(range, event);
+    paintVolume(range, read, volume);
+    window.clearTimeout(volumeTimer);
+    volumeTimer = window.setTimeout(() => sendVolume(userId, volume), 140);
+  };
+  let closed = false;
+  const finish = () => {
+    if (closed || !volumeDrag.has(userId)) return;
+    closed = true;
+    window.clearTimeout(volumeTimer);
+    void sendVolume(userId, Number(range.value)).finally(() => volumeDrag.delete(userId));
+  };
+  range.addEventListener("pointerdown", (event) => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    volumeDrag.add(userId);
+    range.setPointerCapture(event.pointerId);
+    apply(event);
+  });
+  range.addEventListener("pointermove", (event) => {
+    if (volumeDrag.has(userId)) apply(event);
+  });
+  range.addEventListener("pointerup", (event) => {
+    if (closed || !volumeDrag.has(userId)) return;
+    apply(event);
+    finish();
+  });
+  range.addEventListener("pointercancel", finish);
+  range.addEventListener("lostpointercapture", finish);
+  range.addEventListener("input", () => {
+    if (volumeDrag.has(userId)) return;
+    paintVolume(range, read, Number(range.value));
+    window.clearTimeout(volumeTimer);
+    volumeTimer = window.setTimeout(() => sendVolume(userId, Number(range.value)), 140);
+  });
+  range.addEventListener("change", () => {
+    if (volumeDrag.has(userId)) return;
+    window.clearTimeout(volumeTimer);
+    sendVolume(userId, Number(range.value));
+  });
+}
+
+function paintVolume(range, read, volume) {
+  const next = String(Math.max(0, Math.min(200, Math.round(volume))));
+  if (range.value !== next) range.value = next;
+  range.style.setProperty("--pct", (Number(next) / 200) * 100 + "%");
+  if (read) setText(read, next + "%");
+}
+
+function volumeFromPointer(range, event) {
+  const rect = range.getBoundingClientRect();
+  if (rect.width < 8) return Number(range.value);
+  const thumb = 22;
+  const span = Math.max(1, rect.width - thumb);
+  const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left - thumb / 2) / span));
+  return Math.round(ratio * 200);
 }
 
 function selfNote(member) {
@@ -545,25 +586,6 @@ function buildSide(next) {
       select.append(option);
     }
     side.append(select);
-  }
-  const member = (next.voice.members || []).find((item) => item.id === selected && !item.self);
-  if (member && !dragging) {
-    side.append(el("p", "who", member.name));
-    const range = document.createElement("input");
-    range.type = "range";
-    range.min = "0";
-    range.max = "200";
-    range.value = String(member.volume);
-    range.addEventListener("pointerdown", () => { dragging = true; });
-    range.addEventListener("pointerup", () => {
-      dragging = false;
-      sendVolume(member.id, Number(range.value));
-    });
-    range.addEventListener("input", () => {
-      window.clearTimeout(volumeTimer);
-      volumeTimer = window.setTimeout(() => sendVolume(member.id, Number(range.value)), 140);
-    });
-    side.append(range);
   }
   if (chat.error) side.append(el("p", "hint", chat.error));
   else if (!chat.messages.length) side.append(el("p", "hint", "No messages yet. New ones show up here."));
@@ -642,11 +664,9 @@ function onClick(event) {
     return;
   }
   if (act === "person") {
-    selected = target.dataset.id;
-    sideKey = "";
-    if (snap) renderCall(snap);
-    const tools = target.closest(".person")?.querySelector(".tools");
-    if (sideHidden() && !(tools && getComputedStyle(tools).display !== "none")) openVolumeSheet();
+    const member = snap?.voice.members.find((item) => item.id === target.dataset.id);
+    if (!member || member.self) return;
+    void actPost({ type: "user-mute", userId: member.id, mute: !member.localMute });
     return;
   }
   if (act === "copy") {
@@ -672,10 +692,6 @@ function onClick(event) {
   if (act === "dismiss") {
     void actPost({ type: "dismiss", id: target.dataset.id });
     if (target.dataset.channel) void actPost({ type: "watch-chat", channelId: target.dataset.channel });
-    return;
-  }
-  if (act === "user-mute") {
-    void actPost({ type: "user-mute", userId: target.dataset.id, mute: target.dataset.mute === "true" });
     return;
   }
   if (act === "authorize" || act === "browser-auth" || act === "clear" || act === "mute" || act === "deafen" || act === "leave") {
@@ -734,20 +750,6 @@ function openForceSheet() {
   );
 }
 
-function openVolumeSheet() {
-  if (!snap) return;
-  const member = snap.voice.members.find((item) => item.id === selected);
-  if (!member || member.self) return;
-  sheet.hidden = false;
-  sheet.replaceChildren(el("p", "who", member.name + " · " + member.volume + "%"));
-  const range = document.createElement("input");
-  range.type = "range";
-  range.min = "0";
-  range.max = "200";
-  range.value = String(member.volume);
-  range.addEventListener("change", () => sendVolume(member.id, Number(range.value)));
-  sheet.append(range, button("Close", "cancel", "text-btn"));
-}
 
 function openMicSheet() {
   if (!sheet || !snap) return;
@@ -808,9 +810,6 @@ function clip(name) {
   const text = String(name || "").trim();
   return text.length > 14 ? text.slice(0, 13).trim() + "…" : text;
 }
-function sideHidden() {
-  return getComputedStyle(side).display === "none";
-}
 
 function readLayout() {
   try { return localStorage.getItem("edge-discord-layout") === "compact"; } catch { return false; }
@@ -827,14 +826,38 @@ function applyLayout(compact) {
 
 
 function fitRoster() {
-  if (!document.querySelector("#app").classList.contains("compact")) return;
+  if (!document.querySelector("#app").classList.contains("compact")) {
+    for (const card of roster.querySelectorAll(".person")) card.style.removeProperty("--face");
+    return;
+  }
   const count = Number(roster.dataset.count || 0);
   const box = roster.getBoundingClientRect();
   if (box.width < 40 || box.height < 40) return;
   const fit = fitGrid(Math.max(count, 1), box.width, box.height);
-  if (roster.style.getPropertyValue("--cols") === String(fit.cols) && roster.style.getPropertyValue("--rows") === String(fit.rows)) return;
-  roster.style.setProperty("--cols", String(fit.cols));
-  roster.style.setProperty("--rows", String(fit.rows));
+  const cols = String(fit.cols);
+  const rows = String(fit.rows);
+  if (roster.style.getPropertyValue("--cols") !== cols || roster.style.getPropertyValue("--rows") !== rows) {
+    roster.style.setProperty("--cols", cols);
+    roster.style.setProperty("--rows", rows);
+    requestAnimationFrame(fitFaces);
+    return;
+  }
+  fitFaces();
+}
+
+function fitFaces() {
+  if (!document.querySelector("#app").classList.contains("compact")) return;
+  for (const card of roster.querySelectorAll(".person")) {
+    const copy = card.querySelector(".who-copy");
+    const tools = card.querySelector(".tools");
+    const copyH = copy ? copy.offsetHeight : 0;
+    const toolsH = tools && getComputedStyle(tools).display !== "none" ? tools.offsetHeight : 0;
+    const availH = card.clientHeight - copyH - toolsH - 18;
+    const availW = card.clientWidth - 16;
+    const size = Math.max(28, Math.min(availW, availH, 340));
+    const next = Math.floor(size) + "px";
+    if (card.style.getPropertyValue("--face") !== next) card.style.setProperty("--face", next);
+  }
 }
 
 function fitGrid(count, width, height) {
@@ -886,7 +909,7 @@ function facePx(count) {
   return 44;
 }
 function sendVolume(userId, volume) {
-  void actPost({ type: "user-volume", userId, volume });
+  return actPost({ type: "user-volume", userId, volume });
 }
 
 async function post(path, body) {

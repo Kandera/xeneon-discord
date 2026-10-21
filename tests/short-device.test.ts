@@ -4,7 +4,7 @@ import test from "node:test";
 
 const source = readFileSync(new URL("../widget/scripts/widget.js", import.meta.url), "utf8");
 const start = source.indexOf("function shortDevice");
-const end = source.indexOf("\nfunction sideHidden", start);
+const end = source.indexOf("\nfunction readLayout", start);
 if (start < 0 || end < 0) throw new Error("shortDevice not found");
 const shortDevice = new Function(`${source.slice(start, end)}\nreturn shortDevice;`)() as (name: string) => string;
 
