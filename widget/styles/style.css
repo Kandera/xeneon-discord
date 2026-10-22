@@ -124,7 +124,7 @@ h1 {
   height: 100%;
   grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
   gap: 10px;
-  align-content: center;
+  align-content: start;
   min-height: 100%;
 }
   .person {
@@ -139,6 +139,7 @@ h1 {
   text-align: center;
   overflow: hidden;
   contain: layout;
+  container: person / size;
 }
 
 .person.speaking {
@@ -243,6 +244,7 @@ h1 {
   align-items: center;
   gap: 8px;
   width: 100%;
+  min-width: 0;
   color: var(--faint);
   font-size: 13px;
   font-variant-numeric: tabular-nums;
@@ -296,14 +298,20 @@ h1 {
   outline: 2px solid var(--accent-color);
   outline-offset: 2px;
 }
-@container person (min-height: 200px) and (min-width: 96px) {
+@container person (min-height: 128px) and (min-width: 140px) {
   .tools { display: flex; }
+  .status.vol-status { display: none; }
 }
-@container person (max-width: 148px) {
+@container person (max-width: 180px) {
+  .tool-label, .vol-read { display: none; }
+  .status.vol-status { display: block; }
+  .tools { padding: 0 8px 6px; gap: 0; }
+  .vol-line { gap: 0; }
+  .vol-line input[type="range"] { height: 36px; }
+}
+@container person (max-height: 168px) {
   .tool-label { display: none; }
-  .tools { padding: 0 6px 8px; gap: 0; }
-  .vol-line { gap: 4px; }
-  .vol-read { flex: 0 0 2.8em; font-size: 11px; }
+  .tools { padding: 0 8px 6px; gap: 0; }
   .vol-line input[type="range"] { height: 32px; }
 }
 @container person (min-height: 300px) {
@@ -312,12 +320,13 @@ h1 {
   .badge { width: 28px; height: 28px; }
   .badge svg { width: 16px; height: 16px; }
 }
-@container person (min-aspect-ratio: 1.35) and (min-width: 460px) {
-  .person-body { flex-direction: row; align-items: center; gap: 24px; padding: 20px 28px; }
-  .person-open { flex-direction: row; justify-content: flex-start; gap: 20px; padding: 0; }
-  .who-copy { align-items: flex-start; text-align: left; }
-  .tools { width: min(42%, 380px); flex: 0 1 380px; padding: 0; }
-  .face { width: min(72cqh, 300px); height: min(72cqh, 300px); font-size: calc(min(72cqh, 300px) * 0.34); }
+@container person (min-aspect-ratio: 1.35) and (min-width: 720px) {
+  .person-body { flex-direction: row; align-items: center; gap: 20px; padding: 16px 24px; }
+  .person-open { flex: 1 1 auto; min-width: 0; flex-direction: row; align-items: center; justify-content: flex-start; gap: 16px; padding: 0; }
+  .face-wrap { flex: 0 0 auto; width: auto; }
+  .who-copy { flex: 1 1 auto; min-width: 0; align-items: flex-start; text-align: left; }
+  .tools { width: auto; flex: 0 1 280px; max-width: 320px; min-width: 160px; padding: 0; }
+  .face { width: clamp(72px, 42cqh, 160px); height: clamp(72px, 42cqh, 160px); font-size: calc(clamp(72px, 42cqh, 160px) * 0.34); }
 }
 .empty {
   grid-column: 1 / -1;
@@ -642,32 +651,54 @@ label.hint { display: flex; flex-direction: column; gap: 6px; }
   max-width: 100%;
   max-height: 100%;
 }
+#app.compact .person.self .status { display: none; }
 @container person (max-height: 132px) {
   #app.compact .status { display: none; }
   #app.compact .person-open { padding: 4px; gap: 2px; }
 }
-@container person (min-aspect-ratio: 1.35) and (min-width: 460px) {
-  #app.compact .face {
-    width: min(70cqh, 360px);
-    height: min(70cqh, 360px);
-    font-size: calc(min(70cqh, 360px) * 0.34);
-  }
+@container person (min-width: 240px) and (min-height: 160px) {
+  #app.compact .name { font-size: 18px; }
+}
+@container person (min-aspect-ratio: 1.35) and (min-width: 720px) {
   #app.compact .person-body {
     display: flex;
     flex-direction: row;
     align-items: center;
-    justify-content: center;
-    gap: 36px;
-    padding: 20px 28px;
-    grid-template-rows: none;
+    justify-content: flex-start;
+    gap: 20px;
+    padding: 16px 24px;
   }
-
-  #app.compact .person-open { flex: 0 1 auto; width: auto; justify-content: flex-start; }
-  #app.compact .name { font-size: 32px; }
+  #app.compact .person-open {
+    flex: 1 1 auto;
+    min-width: 0;
+    width: auto;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 16px;
+    padding: 0;
+    overflow: visible;
+  }
+  #app.compact .face-wrap { flex: 0 0 auto; width: auto; height: auto; }
+  #app.compact .face {
+    width: clamp(72px, 42cqh, 160px);
+    height: clamp(72px, 42cqh, 160px);
+    font-size: calc(clamp(72px, 42cqh, 160px) * 0.34);
+  }
+  #app.compact .who-copy { flex: 1 1 auto; min-width: 0; align-items: flex-start; text-align: left; }
+  #app.compact .name { font-size: clamp(20px, 6cqh, 32px); }
   #app.compact .status { font-size: 16px; }
   #app.compact .person.self .status { display: none; }
-  #app.compact .tools { height: auto; width: 320px; flex: 0 0 320px; padding: 0; }
-  #app.compact .self-note { width: auto; flex: 0 0 auto; align-items: flex-start; }
+  #app.compact .tools,
+  #app.compact .self-note {
+    height: auto;
+    width: auto;
+    flex: 0 1 280px;
+    max-width: 320px;
+    min-width: 160px;
+    padding: 0;
+  }
+  #app.compact .self-note { align-items: flex-end; text-align: right; }
 }
 #app.compact .roster > .hint { display: grid; place-items: center; margin: 0; }
 #app.compact .sheet { left: calc(var(--rail) + 20px); bottom: 16px; }

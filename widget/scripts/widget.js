@@ -351,8 +351,7 @@ function patchRoster(next) {
         open.setAttribute("aria-label", (member.localMute ? "Unmute " : "Mute ") + member.name);
       }
     }
-    setText(node.querySelector(".name"), member.name);
-    setText(node.querySelector(".status"), statusText(member));
+    paintStatus(node, member);
     syncBadge(node.querySelector(".face-wrap"), member);
     const face = node.querySelector(".face");
     const img = face?.querySelector("img");
@@ -421,7 +420,9 @@ function personButton(member) {
   wrap.append(face);
   syncBadge(wrap, member);
   const copy = el("span", "who-copy");
-  copy.append(el("span", "name", member.name), el("span", "status", statusText(member)));
+  const status = el("span", "status", statusText(member));
+  if (/^\d+%$/.test(status.textContent)) status.classList.add("vol-status");
+  copy.append(el("span", "name", member.name), status);
   open.append(wrap, copy);
   const body = el("div", "person-body");
   body.append(open);
@@ -458,31 +459,34 @@ function bindVolume(range, read, userId) {
     window.clearTimeout(volumeTimer);
     volumeTimer = window.setTimeout(() => sendVolume(userId, volume), 140);
   };
-  let closed = false;
-  const finish = () => {
-    if (closed || !volumeDrag.has(userId)) return;
-    closed = true;
+  let pointerId = null;
+  const move = (event) => {
+    if (event.pointerId !== pointerId) return;
+    apply(event);
+  };
+  const end = (event) => {
+    if (event.pointerId !== pointerId) return;
+    apply(event);
+    pointerId = null;
+    document.removeEventListener("pointermove", move);
+    document.removeEventListener("pointerup", end);
+    document.removeEventListener("pointercancel", end);
     window.clearTimeout(volumeTimer);
     void sendVolume(userId, Number(range.value)).finally(() => volumeDrag.delete(userId));
   };
   range.addEventListener("pointerdown", (event) => {
+    if (pointerId !== null) return;
     if (event.pointerType === "mouse" && event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
+    pointerId = event.pointerId;
     volumeDrag.add(userId);
-    range.setPointerCapture(event.pointerId);
+    try { range.setPointerCapture(event.pointerId); } catch { /* Qt WebEngine may reject capture */ }
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", end);
+    document.addEventListener("pointercancel", end);
     apply(event);
   });
-  range.addEventListener("pointermove", (event) => {
-    if (volumeDrag.has(userId)) apply(event);
-  });
-  range.addEventListener("pointerup", (event) => {
-    if (closed || !volumeDrag.has(userId)) return;
-    apply(event);
-    finish();
-  });
-  range.addEventListener("pointercancel", finish);
-  range.addEventListener("lostpointercapture", finish);
   range.addEventListener("input", () => {
     if (volumeDrag.has(userId)) return;
     paintVolume(range, read, Number(range.value));
@@ -852,9 +856,9 @@ function fitFaces() {
     const tools = card.querySelector(".tools");
     const copyH = copy ? copy.offsetHeight : 0;
     const toolsH = tools && getComputedStyle(tools).display !== "none" ? tools.offsetHeight : 0;
-    const availH = card.clientHeight - copyH - toolsH - 18;
+    const availH = card.clientHeight - copyH - toolsH - 12;
     const availW = card.clientWidth - 16;
-    const size = Math.max(28, Math.min(availW, availH, 340));
+    const size = Math.min(availW, Math.max(0, availH), 340);
     const next = Math.floor(size) + "px";
     if (card.style.getPropertyValue("--face") !== next) card.style.setProperty("--face", next);
   }
@@ -868,15 +872,17 @@ function fitGrid(count, width, height) {
     const rows = Math.ceil(count / cols);
     const cw = (width - gap * (cols - 1)) / cols;
     const ch = (height - gap * (rows - 1)) / rows;
-    if (cw < 88 || ch < 88) continue;
+    if (cw < 148 || ch < 168) continue;
     const aspect = cw / ch;
-    const aspectPenalty = aspect < 0.62 ? (0.62 - aspect) * 4 : aspect > 1.55 ? (aspect - 1.55) * 2.2 : 0;
+    const skinny = aspect < 0.72 ? (0.72 - aspect) * 10 : 0;
+    const wide = aspect > 2.1 ? (aspect - 2.1) * 2 : 0;
+    const narrow = Math.max(0, 170 - cw);
     const empty = cols * rows - count;
-    const score = cw * ch - aspectPenalty * 9000 - empty * 14000;
+    const score = cw * ch - (skinny + wide) * 6000 - empty * 5000 - narrow * 1800;
     if (!best || score > best.score) best = { cols, rows, score };
   }
   if (best) return best;
-  const cols = Math.max(1, Math.min(count, Math.floor((width + gap) / (110 + gap))));
+  const cols = Math.max(1, Math.min(count, Math.floor((width + gap) / (128 + gap))));
   return { cols, rows: Math.ceil(count / cols) };
 }
 
@@ -946,6 +952,15 @@ function initials(name) {
 
 function cssEscape(value) {
   return window.CSS && CSS.escape ? CSS.escape(value) : value.replace(/"/g, "");
+}
+
+function paintStatus(node, member) {
+  const status = node.querySelector(".status");
+  if (!status) return;
+  const text = statusText(member);
+  const vol = /^\d+%$/.test(text);
+  if (status.classList.contains("vol-status") !== vol) status.classList.toggle("vol-status", vol);
+  setText(status, text);
 }
 
 function statusText(member) {
