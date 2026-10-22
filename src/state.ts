@@ -209,6 +209,27 @@ export function memberFromVoice(raw: unknown): Member | null {
   };
 }
 
+export function shouldFollowVoice(event: string, data: unknown, selfId: string | null, previousConnection: string): boolean {
+  if (event === "VOICE_CHANNEL_SELECT") return true;
+  if (event === "VOICE_STATE_DELETE" && selfId) {
+    const row = asRecord(data);
+    const user = asRecord(row?.user);
+    const id = text(user?.id) || text(row?.user_id);
+    return id === selfId;
+  }
+  if (event === "VOICE_CONNECTION_STATUS") {
+    const next = text(asRecord(data)?.state);
+    return next === "VOICE_CONNECTED" && previousConnection !== "VOICE_CONNECTED";
+  }
+  return false;
+}
+
+export function selectedChannelId(data: unknown): string | null | undefined {
+  const row = asRecord(data);
+  if (!row || !Object.prototype.hasOwnProperty.call(row, "channel_id")) return undefined;
+  return typeof row.channel_id === "string" && row.channel_id ? row.channel_id : null;
+}
+
 export function applyChannel(model: Model, data: unknown, now: number): void {
   const channel = asRecord(data);
   if (!channel || !text(channel.id)) {

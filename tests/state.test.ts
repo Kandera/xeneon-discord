@@ -7,6 +7,8 @@ import {
   applyVoiceState,
   blankModel,
   pushNotice,
+  selectedChannelId,
+  shouldFollowVoice,
   snapshot,
 } from "../src/state.ts";
 
@@ -116,4 +118,15 @@ test("notices keep the newest six", () => {
   }
   const ids = snapshot(model, 0).notifications.map((notice) => notice.id);
   assert.deepEqual(ids, ["7", "6", "5", "4", "3", "2"]);
+});
+
+test("a drag or a self leave follows the selected channel, another person leaving does not", () => {
+  assert.equal(shouldFollowVoice("VOICE_CHANNEL_SELECT", { channel_id: "20" }, "1", "VOICE_CONNECTED"), true);
+  assert.equal(shouldFollowVoice("VOICE_STATE_DELETE", { user: { id: "1" } }, "1", "VOICE_CONNECTED"), true);
+  assert.equal(shouldFollowVoice("VOICE_STATE_DELETE", { user_id: "2" }, "1", "VOICE_CONNECTED"), false);
+  assert.equal(shouldFollowVoice("VOICE_CONNECTION_STATUS", { state: "VOICE_CONNECTED" }, "1", "VOICE_CONNECTING"), true);
+  assert.equal(shouldFollowVoice("VOICE_CONNECTION_STATUS", { state: "VOICE_CONNECTED" }, "1", "VOICE_CONNECTED"), false);
+  assert.equal(selectedChannelId({ channel_id: "20" }), "20");
+  assert.equal(selectedChannelId({ channel_id: null }), null);
+  assert.equal(selectedChannelId({}), undefined);
 });

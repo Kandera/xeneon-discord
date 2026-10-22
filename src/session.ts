@@ -21,6 +21,8 @@ import {
   pushNotice,
   setChatChannel,
   snapshot,
+  selectedChannelId,
+  shouldFollowVoice,
   snowflake,
   type ChatMessage,
   type Snapshot,
@@ -69,8 +71,15 @@ export class Session {
   private readonly avatars = new Map<string, { hash: string; bytes: Buffer; type: string }>();
   private ready = false;
   private stopped = false;
-  private speakingTimer: NodeJS.Timeout | null = null;
   private looping = false;
+  private speakingTimer: NodeJS.Timeout | null = null;
+  private followTimer: NodeJS.Timeout | null = null;
+  private followAgain: NodeJS.Timeout | null = null;
+  private following = false;
+  private followQueued = false;
+  private followExpected: string | null | undefined = undefined;
+  private followHasExpected = false;
+  private followRetry = false;
   private allowPrompt = true;
   private watchedVoice: string | null = null;
   private watchedChat: string | null = null;
@@ -108,7 +117,11 @@ export class Session {
   stop(): void {
     this.stopped = true;
     clearTimeout(this.speakingTimer ?? undefined);
+    clearTimeout(this.followTimer ?? undefined);
+    clearTimeout(this.followAgain ?? undefined);
     this.speakingTimer = null;
+    this.followTimer = null;
+    this.followAgain = null;
     this.wake();
     this.rejectPending(new Error("stopped"));
   }
@@ -669,10 +682,69 @@ export class Session {
     }
   }
 
+  private scheduleFollow(expected?: string | null, retryIfUnchanged = false): void {
+    if (expected !== undefined) {
+      this.followExpected = expected;
+      this.followHasExpected = true;
+    }
+    if (retryIfUnchanged) this.followRetry = true;
+    if (this.followTimer || this.following) {
+      this.followQueued = true;
+      return;
+    }
+    this.followTimer = setTimeout(() => {
+      this.followTimer = null;
+      const hint = this.followHasExpected ? this.followExpected : undefined;
+      const retry = this.followRetry;
+      this.followHasExpected = false;
+      this.followExpected = undefined;
+      this.followRetry = false;
+      void this.followSelected(hint, retry);
+    }, 180);
+  }
+
+  private async followSelected(expected?: string | null, retryIfUnchanged = false): Promise<void> {
+    this.following = true;
+    const left = this.model.channelId;
+    try {
+      await this.refreshChannel();
+      if (this.stopped) return;
+      this.emit();
+      const selfId = this.model.user?.id;
+      const unchanged = Boolean(left && this.model.channelId === left);
+      const selfMissing = Boolean(selfId && unchanged && !this.model.members.has(selfId));
+      const missed = expected !== undefined && this.model.channelId !== expected;
+      if (!selfMissing && !missed && !(retryIfUnchanged && unchanged)) return;
+      clearTimeout(this.followAgain ?? undefined);
+      this.followAgain = setTimeout(() => {
+        this.followAgain = null;
+        if (this.stopped) return;
+        void this.refreshChannel().then(() => {
+          if (!this.stopped) this.emit();
+        }).catch(() => {});
+      }, 450);
+    } catch {
+      /* a stale read must not blank the board */
+    } finally {
+      this.following = false;
+      if (this.followQueued && !this.stopped) {
+        this.followQueued = false;
+        this.scheduleFollow();
+      }
+    }
+  }
+
   private onDispatch(evt: string, data: unknown): void {
     const now = Date.now();
-    if (evt === "VOICE_CHANNEL_SELECT") {
-      void this.refreshChannel().then(() => this.emit()).catch((error: unknown) => this.fail(error));
+    const previousConnection = this.model.connection;
+    if (shouldFollowVoice(evt, data, this.model.user?.id ?? null, previousConnection)) {
+      if (evt === "VOICE_STATE_DELETE") applyVoiceState(this.model, evt, data);
+      if (evt === "VOICE_CONNECTION_STATUS") {
+        const status = asRecord(data);
+        this.model.connection = typeof status?.state === "string" ? status.state : "";
+      }
+      this.scheduleFollow(evt === "VOICE_CHANNEL_SELECT" ? selectedChannelId(data) : undefined, evt === "VOICE_STATE_DELETE");
+      this.emit();
       return;
     }
     let dirty = true;
